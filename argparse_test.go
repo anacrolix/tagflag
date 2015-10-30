@@ -8,8 +8,8 @@ import (
 
 func TestBasic(t *testing.T) {
 	type simpleCmd struct {
-		Verbose bool   `argparse:"-v"`
-		Arg     string `argparse:"-"`
+		Verbose bool   `type:"flag" short:"v"`
+		Arg     string `type:"arg"`
 	}
 	for _, _case := range []struct {
 		expected simpleCmd
@@ -33,7 +33,7 @@ func TestBasic(t *testing.T) {
 		},
 		{
 			simpleCmd{},
-			userError{`missing argument: "arg"`},
+			userError{`missing argument: "ARG"`},
 			[]string{"-v"},
 		},
 		{
@@ -44,11 +44,12 @@ func TestBasic(t *testing.T) {
 	} {
 		var actual simpleCmd
 		err := Args(&actual, _case.args)
-		assert.EqualValues(t, _case.err, err)
-		if _case.err != nil {
-			continue
+		if _case.err == nil {
+			assert.NoError(t, err)
+			assert.EqualValues(t, _case.expected, actual)
+		} else {
+			assert.EqualValues(t, _case.err, err)
 		}
-		assert.EqualValues(t, _case.expected, actual)
 	}
 }
 
@@ -57,18 +58,18 @@ func TestNotBasic(t *testing.T) {
 		Seed       bool
 		NoUpload   bool
 		ListenAddr string
-		DataDir    string   `argparse:"-d"`
-		Torrent    []string `argparse:"+"`
+		DataDir    string   `short:"d"`
+		Torrent    []string `type:"arg" arity:"+"`
 	}
 	for _, _case := range []struct {
 		args     []string
 		err      error
 		expected cmd
 	}{
-		{nil, userError{`missing argument: "torrent"`}, cmd{}},
+		{nil, userError{`missing argument: "TORRENT"`}, cmd{}},
 		{
 			[]string{"--seed"},
-			userError{`missing argument: "torrent"`},
+			userError{`missing argument: "TORRENT"`},
 			cmd{},
 		},
 		{
@@ -98,11 +99,14 @@ func TestNotBasic(t *testing.T) {
 	} {
 		var actual cmd
 		err := Args(&actual, _case.args)
-		assert.EqualValues(t, _case.err, err)
-		if _case.err != nil {
-			continue
+		if _case.err == nil {
+			assert.NoError(t, err)
+			assert.EqualValues(t, _case.expected, actual)
+		} else if err == nil {
+			t.Errorf("expected error: %s", _case.err)
+		} else {
+			assert.EqualValues(t, _case.err, err)
 		}
-		assert.EqualValues(t, _case.expected, actual)
 	}
 }
 

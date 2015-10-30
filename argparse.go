@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"text/tabwriter"
-	"unicode/utf8"
 
 	"github.com/anacrolix/exc"
 	"github.com/bradfitz/iter"
@@ -18,16 +17,26 @@ import (
 type parser struct {
 	program     string
 	args        []string
-	cmd         parsedCmd
+	cmd         command
+	optGroups   []optionGroup
 	nargs       int
 	exitOnError bool
 	errorWriter io.Writer
 	printHelp   bool
 }
 
-func (pc *parsedCmd) WriteUsage(w io.Writer, program string) {
-	fmt.Fprintf(w, "Usage: %s [OPTIONS...]", program)
-	for _, arg := range pc.args {
+func argsWithDesc(args []arg) (ret []arg) {
+	for _, a := range args {
+		if a.desc != "" {
+			ret = append(ret, a)
+		}
+	}
+	return
+}
+
+func (p *parser) WriteUsage(w io.Writer, program string) {
+	fmt.Fprintf(w, "Usage:\n  %s [OPTIONS...]", program)
+	for _, arg := range p.cmd.args {
 		fs := func() string {
 			switch arg.arity {
 			case '-':
@@ -44,13 +53,36 @@ func (pc *parsedCmd) WriteUsage(w io.Writer, program string) {
 		}()
 		fmt.Fprintf(w, " "+fs, arg.name)
 	}
-	fmt.Fprintf(w, "\n\n")
-	if len(pc.flags) == 0 {
+	fmt.Fprintf(w, "\n")
+	if awd := argsWithDesc(p.cmd.args); len(awd) != 0 {
+		fmt.Fprintf(w, "Arguments:\n")
+		tw := newUsageTabwriter(w)
+		for _, a := range awd {
+			fmt.Fprintf(tw, "  %s\t%s\n", a.name, a.desc)
+		}
+		tw.Flush()
+	}
+	p.writeOptionGroupUsage(w, &p.cmd.options)
+	for i := range p.optGroups {
+		g := &p.optGroups[i]
+		p.writeOptionGroupUsage(w, g)
+	}
+}
+
+func newUsageTabwriter(w io.Writer) *tabwriter.Writer {
+	return tabwriter.NewWriter(w, 8, 2, 3, ' ', 0)
+}
+
+func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
+	if len(g.flags) == 0 {
 		return
 	}
+	if g.name != "" {
+		fmt.Fprintf(w, "%s ", g.name)
+	}
 	fmt.Fprintf(w, "Options:\n")
-	tw := tabwriter.NewWriter(w, 8, 2, 3, ' ', 0)
-	for _, f := range pc.flags {
+	tw := newUsageTabwriter(w)
+	for _, f := range g.flags {
 		fmt.Fprint(tw, "  ")
 		if f.short != 0 {
 			fmt.Fprintf(tw, "-%c, ", f.short)
@@ -62,7 +94,7 @@ func (pc *parsedCmd) WriteUsage(w io.Writer, program string) {
 }
 
 func (p *parser) PrintUsage() {
-	p.cmd.WriteUsage(p.errorWriter, p.program)
+	p.WriteUsage(p.errorWriter, p.program)
 }
 
 func (p *parser) parse() {
@@ -76,7 +108,7 @@ func (p *parser) assertRequiredArgs() {
 	ra := 0
 	for _, a := range p.cmd.args {
 		switch a.arity {
-		case '-':
+		case '1':
 			ra++
 		case '?', '*':
 		case '+':
@@ -104,7 +136,7 @@ func (ue userError) Error() string {
 
 type flag struct {
 	value reflect.Value
-	short rune
+	short byte
 	long  string
 	desc  string
 }
@@ -116,13 +148,9 @@ type arg struct {
 	desc  string
 }
 
-type parsedCmd struct {
-	flags []flag
-	args  []arg
-}
-
-func (pc *parsedCmd) addArg(arity byte, v reflect.Value, name string, desc string) {
-	pc.args = append(pc.args, arg{v, arity, name, desc})
+type command struct {
+	options optionGroup
+	args    []arg
 }
 
 func fieldLongFlagKey(fieldName string) string {
@@ -130,7 +158,67 @@ func fieldLongFlagKey(fieldName string) string {
 	return strings.Replace(ret, "_", "-", -1)
 }
 
-func (p *parser) parseCmd(cmd interface{}) (pc parsedCmd) {
+type optionGroup struct {
+	name  string
+	flags []flag
+}
+
+func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
+	arg := arg{
+		value: v,
+		name:  sf.Tag.Get("name"),
+		desc:  sf.Tag.Get("desc"),
+	}
+	arity := sf.Tag.Get("arity")
+	if arity == "" {
+		arity = "1"
+	}
+	if len(arity) != 1 {
+		p.raiseUserError(fmt.Sprintf("bad arity in tag: %q", sf.Tag))
+	}
+	arg.arity = arity[0]
+	if arg.name == "" {
+		arg.name = strings.ToUpper(xstrings.ToSnakeCase(sf.Name))
+	}
+	cmd.args = append(cmd.args, arg)
+}
+
+func (p *parser) addFlag(g *optionGroup, v reflect.Value, sf reflect.StructField) {
+	f := flag{
+		long:  sf.Tag.Get("long"),
+		desc:  sf.Tag.Get("desc"),
+		value: v,
+	}
+	short := sf.Tag.Get("short")
+	switch len(short) {
+	case 0:
+	case 1:
+		f.short = short[0]
+	default:
+		p.raiseUserError(fmt.Sprintf("bad short tag: %q", sf.Tag))
+	}
+	if f.long == "" {
+		f.long = strings.Replace(xstrings.ToSnakeCase(sf.Name), "_", "-", -1)
+	}
+	g.flags = append(g.flags, f)
+}
+
+func foreachStructField(_struct reflect.Value, f func(fv reflect.Value, sf reflect.StructField)) {
+	t := _struct.Type()
+	for i := range iter.N(t.NumField()) {
+		sf := t.Field(i)
+		fv := _struct.Field(i)
+		f(fv, sf)
+	}
+}
+
+func (p *parser) addOptionGroup(g *optionGroup, v reflect.Value) {
+	foreachStructField(v, func(fv reflect.Value, sf reflect.StructField) {
+		p.addFlag(g, fv, sf)
+	})
+}
+
+func (p *parser) addCmd(cmd interface{}) {
 	if cmd == nil {
 		return
 	}
@@ -139,47 +227,35 @@ func (p *parser) parseCmd(cmd interface{}) (pc parsedCmd) {
 		p.raiseUserError(fmt.Sprintf("cmd must be ptr or nil"))
 	}
 	v = v.Elem()
-	t := v.Type()
-	for i := range iter.N(t.NumField()) {
-		sf := t.Field(i)
-		fv := v.Field(i)
-		tag := sf.Tag.Get("argparse")
-		tagParts := strings.SplitN(tag, ":", 2)
-		var desc string
-		if len(tagParts) > 1 {
-			desc = tagParts[1]
-		}
-		cfg := tagParts[0]
-		switch cfg {
-		case "-", "?", "+", "*":
-			pc.addArg(cfg[0], fv, fieldLongFlagKey(sf.Name), desc)
-			continue
-		case "":
-			pc.flags = append(pc.flags, flag{
-				value: fv,
-				long:  fieldLongFlagKey(sf.Name),
-				desc:  desc,
-			})
-		default:
-			if len(cfg) == 2 && cfg[0] == '-' {
-				f := flag{
-					value: fv,
-					long:  fieldLongFlagKey(sf.Name),
-					desc:  desc,
-				}
-				f.short, _ = utf8.DecodeRuneInString(cfg[1:])
-				pc.flags = append(pc.flags, f)
-			} else {
-				p.raiseUserError(fmt.Sprintf("bad flag tag: %q", tag))
-			}
-		}
-	}
-	return
+	foreachStructField(v, func(fv reflect.Value, sf reflect.StructField) {
+		p.addAny(&p.cmd, fv, sf)
+	})
 }
 
-func (p *parser) getShortFlag(name rune) *flag {
-	for i := range p.cmd.flags {
-		f := &p.cmd.flags[i]
+func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) {
+	switch sf.Tag.Get("type") {
+	case "flag":
+		p.addFlag(&cmd.options, fv, sf)
+	case "arg":
+		p.addArg(cmd, fv, sf)
+	default:
+		if fv.Kind() == reflect.Struct {
+			p.addOptionGroup(p.newOptionGroup(sf.Name), fv)
+		} else {
+			p.addFlag(&cmd.options, fv, sf)
+			// p.raiseUserError(fmt.Sprintf("bad type in tag for %s: %q", sf.Name, sf.Tag))
+		}
+	}
+}
+
+func (p *parser) newOptionGroup(name string) *optionGroup {
+	p.optGroups = append(p.optGroups, optionGroup{name: name})
+	return &p.optGroups[len(p.optGroups)-1]
+}
+
+func (p *parser) getShortFlag(name byte) *flag {
+	for i := range p.cmd.options.flags {
+		f := &p.cmd.options.flags[i]
 		if f.short == name {
 			return f
 		}
@@ -188,7 +264,7 @@ func (p *parser) getShortFlag(name rune) *flag {
 }
 
 func (p *parser) getLongFlag(name string) *flag {
-	for _, f := range p.cmd.flags {
+	for _, f := range p.cmd.options.flags {
 		if f.long == name {
 			return &f
 		}
@@ -223,7 +299,8 @@ func (p *parser) parseLongFlag() {
 }
 
 func (p *parser) parseShortFlags() {
-	for i, c := range p.next()[1:] {
+	for i := range p.next()[1:] {
+		c := p.next()[1:][i]
 		f := p.getShortFlag(c)
 		if f == nil {
 			if p.printHelp && c == 'h' {
@@ -282,7 +359,7 @@ func (p *parser) argValue() reflect.Value {
 	for _, arg := range p.cmd.args {
 		na++
 		switch arg.arity {
-		case '-', '?':
+		case '1', '?':
 			if na != p.nargs {
 				continue
 			}
@@ -357,7 +434,7 @@ func Args(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 		po(&p)
 	}
 	exc.TryCatch(func() {
-		p.cmd = p.parseCmd(cmd)
+		p.addCmd(cmd)
 		p.parse()
 	}, func(e *exc.Exception) {
 		// log.Printf("%#v", e)
@@ -373,8 +450,7 @@ func Args(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 		e.Raise()
 	})
 	if err != nil && p.exitOnError {
-		fmt.Fprintf(p.errorWriter, "%s\n\n", err)
-		p.PrintUsage()
+		fmt.Fprintf(p.errorWriter, "%s\n", err)
 		os.Exit(2)
 	}
 	return
