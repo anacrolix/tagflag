@@ -15,14 +15,16 @@ import (
 )
 
 type parser struct {
-	program     string
-	args        []string
-	cmd         command
-	optGroups   []optionGroup
-	nargs       int
-	exitOnError bool
-	errorWriter io.Writer
-	printHelp   bool
+	program   string
+	args      []string
+	cmd       command
+	optGroups []optionGroup
+	nargs     int
+
+	exitOnError    bool
+	errorWriter    io.Writer
+	printHelp      bool
+	skipUnsettable bool
 }
 
 func argsWithDesc(args []arg) (ret []arg) {
@@ -183,7 +185,22 @@ func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
 	cmd.args = append(cmd.args, arg)
 }
 
+func (p *parser) skipCannotSet(t reflect.Type) bool {
+	cst := cannotSet(t)
+	if cst == nil {
+		return false
+	}
+	if p.skipUnsettable {
+		return true
+	}
+	raiseUserError(fmt.Sprintf("can't set type %s: %s", fullTypeName(cst), cst))
+	panic("unreachable")
+}
+
 func (p *parser) addFlag(g *optionGroup, v reflect.Value, sf reflect.StructField) {
+	if p.skipCannotSet(v.Type()) {
+		return
+	}
 	f := flag{
 		long:  sf.Tag.Get("long"),
 		desc:  sf.Tag.Get("desc"),
@@ -240,7 +257,11 @@ func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) 
 		p.addArg(cmd, fv, sf)
 	default:
 		if fv.Kind() == reflect.Struct {
-			p.addOptionGroup(p.newOptionGroup(sf.Name), fv)
+			name := sf.Tag.Get("name")
+			if name == "" {
+				name = sf.Name
+			}
+			p.addOptionGroup(p.newOptionGroup(name), fv)
 		} else {
 			p.addFlag(&cmd.options, fv, sf)
 			// p.raiseUserError(fmt.Sprintf("bad type in tag for %s: %q", sf.Name, sf.Tag))
@@ -267,6 +288,13 @@ func (p *parser) getLongFlag(name string) *flag {
 	for _, f := range p.cmd.options.flags {
 		if f.long == name {
 			return &f
+		}
+	}
+	for _, og := range p.optGroups {
+		for _, f := range og.flags {
+			if f.long == name {
+				return &f
+			}
 		}
 	}
 	return nil
@@ -349,8 +377,12 @@ func (p *parser) parseAny() {
 	}
 }
 
-func (p *parser) raiseUserError(msg string) {
+func raiseUserError(msg string) {
 	exc.Raise(userError{msg})
+}
+
+func (p *parser) raiseUserError(msg string) {
+	raiseUserError(msg)
 }
 
 func (p *parser) argValue() reflect.Value {
@@ -373,22 +405,54 @@ func (p *parser) argValue() reflect.Value {
 	panic("unreachable")
 }
 
-func argToKind(arg string, kind reflect.Kind) reflect.Value {
+func argToKind(arg string, kind reflect.Kind) (ret reflect.Value) {
 	switch kind {
 	case reflect.String:
-		return reflect.ValueOf(arg)
-	default:
-		panic(fmt.Sprintf("unsupported value type: %s", kind))
+		ret = reflect.ValueOf(arg)
 	}
+	return
+}
+
+func fullTypeName(t reflect.Type) string {
+	if t.PkgPath() == "" {
+		return t.Name()
+	}
+	return fmt.Sprintf(`"%s".%s`, t.PkgPath(), t.Name())
 }
 
 func (p *parser) setValue(v reflect.Value) {
 	switch v.Kind() {
 	case reflect.Slice:
 		v.Set(reflect.Append(v, argToKind(p.next(), v.Type().Elem().Kind())))
+	case reflect.Ptr:
+		if v.IsNil() {
+			nv := reflect.New(v.Type().Elem())
+			p.setValue(nv.Elem())
+			v.Set(nv)
+		} else {
+			p.setValue(v.Elem())
+		}
 	default:
-		v.Set(argToKind(p.next(), v.Kind()))
+		x := argToKind(p.next(), v.Kind())
+		if !x.IsValid() {
+			raiseUserError(fmt.Sprintf("can't convert %q to type %s", p.next(), fullTypeName(v.Type())))
+		}
+		v.Set(x)
 	}
+}
+
+func cannotSet(t reflect.Type) (ret reflect.Type) {
+	switch t.Kind() {
+	case reflect.Bool, reflect.String:
+		return
+	case reflect.Ptr:
+		ret = cannotSet(t.Elem())
+	case reflect.Slice:
+		ret = cannotSet(t.Elem())
+	default:
+		ret = t
+	}
+	return
 }
 
 func (p *parser) parseArg() {
@@ -397,8 +461,10 @@ func (p *parser) parseArg() {
 	p.advance()
 }
 
-func Argv(cmd interface{}) {
-	err := Args(cmd, os.Args[1:], ExitOnError(), HelpFlag(), Program(filepath.Base(os.Args[0])))
+func Argv(cmd interface{}, opts ...parseOpt) {
+	err := Args(cmd, os.Args[1:], append([]parseOpt{
+		ExitOnError(), HelpFlag(), Program(filepath.Base(os.Args[0])),
+	}, opts...)...)
 	if err != nil {
 		panic(err)
 	}
@@ -409,6 +475,12 @@ type parseOpt func(p *parser)
 func ExitOnError() parseOpt {
 	return func(p *parser) {
 		p.exitOnError = true
+	}
+}
+
+func SkipBadTypes() parseOpt {
+	return func(p *parser) {
+		p.skipUnsettable = true
 	}
 }
 
