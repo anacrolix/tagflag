@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/anacrolix/exc"
+	"github.com/anacrolix/missinggo"
 	"github.com/bradfitz/iter"
 	"github.com/huandu/xstrings"
 )
@@ -25,6 +26,7 @@ type parser struct {
 	errorWriter    io.Writer
 	printHelp      bool
 	skipUnsettable bool
+	description    string
 }
 
 func argsWithDesc(args []arg) (ret []arg) {
@@ -36,8 +38,23 @@ func argsWithDesc(args []arg) (ret []arg) {
 	return
 }
 
-func (p *parser) WriteUsage(w io.Writer, program string) {
-	fmt.Fprintf(w, "Usage:\n  %s [OPTIONS...]", program)
+func (p *parser) hasOptions() bool {
+	if len(p.cmd.options.flags) != 0 {
+		return true
+	}
+	for _, og := range p.optGroups {
+		if len(og.flags) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *parser) WriteUsage(w io.Writer) {
+	fmt.Fprintf(w, "Usage:\n  %s", p.program)
+	if p.hasOptions() {
+		fmt.Fprintf(w, " [OPTIONS...]")
+	}
 	for _, arg := range p.cmd.args {
 		fs := func() string {
 			switch arg.arity {
@@ -56,6 +73,9 @@ func (p *parser) WriteUsage(w io.Writer, program string) {
 		fmt.Fprintf(w, " "+fs, arg.name)
 	}
 	fmt.Fprintf(w, "\n")
+	if p.description != "" {
+		fmt.Fprintf(w, "\n%s\n", missinggo.Unchomp(p.description))
+	}
 	if awd := argsWithDesc(p.cmd.args); len(awd) != 0 {
 		fmt.Fprintf(w, "Arguments:\n")
 		tw := newUsageTabwriter(w)
@@ -93,10 +113,6 @@ func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
 		fmt.Fprintf(tw, "\t%s\n", f.desc)
 	}
 	tw.Flush()
-}
-
-func (p *parser) PrintUsage() {
-	p.WriteUsage(p.errorWriter, p.program)
 }
 
 func (p *parser) parse() {
@@ -496,6 +512,12 @@ func Program(program string) parseOpt {
 	}
 }
 
+func Description(desc string) parseOpt {
+	return func(p *parser) {
+		p.description = desc
+	}
+}
+
 func Args(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 	p := parser{
 		args:        args,
@@ -516,7 +538,7 @@ func Args(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 			return
 		}
 		if _, ok := e.Value.(printHelp); ok {
-			p.PrintUsage()
+			p.WriteUsage(os.Stdout)
 			os.Exit(0)
 		}
 		e.Raise()
