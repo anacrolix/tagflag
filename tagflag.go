@@ -3,7 +3,6 @@ package tagflag
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -427,7 +426,7 @@ func (p *parser) parseFlagValue(flag flag) {
 }
 
 func (p *parser) parseAny() {
-	log.Println("parsing", p.next())
+	// log.Println("parsing", p.next())
 	if strings.HasPrefix(p.next(), "-") {
 		p.parseFlag()
 	} else {
