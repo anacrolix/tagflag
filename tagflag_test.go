@@ -1,4 +1,4 @@
-package argparse
+package tagflag
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 func TestBasic(t *testing.T) {
 	type simpleCmd struct {
 		Verbose bool   `type:"flag" short:"v"`
-		Arg     string `type:"arg"`
+		Arg     string `type:"pos"`
 	}
 	for _, _case := range []struct {
 		expected simpleCmd
@@ -38,18 +38,17 @@ func TestBasic(t *testing.T) {
 		},
 		{
 			simpleCmd{},
-			userError{`unexpected flag: "-no"`},
+			userError{`unexpected flag: "-n"`},
 			[]string{"-no"},
 		},
 	} {
 		var actual simpleCmd
 		err := Args(&actual, _case.args)
-		if _case.err == nil {
-			assert.NoError(t, err)
-			assert.EqualValues(t, _case.expected, actual)
-		} else {
-			assert.EqualValues(t, _case.err, err)
+		assert.EqualValues(t, _case.err, err)
+		if _case.err != nil {
+			continue
 		}
+		assert.EqualValues(t, _case.expected, actual)
 	}
 }
 
@@ -59,7 +58,7 @@ func TestNotBasic(t *testing.T) {
 		NoUpload   bool
 		ListenAddr string
 		DataDir    string   `short:"d"`
-		Torrent    []string `type:"arg" arity:"+"`
+		Torrent    []string `type:"pos" arity:"+"`
 	}
 	for _, _case := range []struct {
 		args     []string
@@ -73,10 +72,11 @@ func TestNotBasic(t *testing.T) {
 			cmd{},
 		},
 		{
-			[]string{"a.torrent", "b.torrent"},
+			[]string{"a.torrent", "--seed", "b.torrent"},
 			nil,
 			cmd{
 				Torrent: []string{"a.torrent", "b.torrent"},
+				Seed:    true,
 			},
 		},
 		{
@@ -99,14 +99,11 @@ func TestNotBasic(t *testing.T) {
 	} {
 		var actual cmd
 		err := Args(&actual, _case.args)
-		if _case.err == nil {
-			assert.NoError(t, err)
-			assert.EqualValues(t, _case.expected, actual)
-		} else if err == nil {
-			t.Errorf("expected error: %s", _case.err)
-		} else {
-			assert.EqualValues(t, _case.err, err)
+		assert.EqualValues(t, _case.err, err)
+		if _case.err != nil {
+			continue
 		}
+		assert.EqualValues(t, _case.expected, actual)
 	}
 }
 
@@ -116,4 +113,48 @@ func TestBadCommand(t *testing.T) {
 		Args(struct{}{}, nil))
 	assert.NoError(t, Args(new(struct{}), nil))
 	assert.NoError(t, Args(nil, nil))
+	assert.EqualValues(t, logicError{},
+		Args(&struct {
+			A string `type:"pos" arity:"*"`
+		}{}, nil))
+}
+
+func TestVarious(t *testing.T) {
+	a := &struct {
+		A string `type:"pos" arity:"+"`
+	}{}
+	t.Log(Args(a, nil))
+	t.Log(Args(a, []string{"a"}))
+	assert.EqualValues(t, "a", a.A)
+	t.Log(Args(a, []string{"a", "b"}))
+	assert.EqualValues(t, "b", a.A)
+}
+
+func TestBasicPositionalArities(t *testing.T) {
+	type cmd struct {
+		A string `type:"pos"`
+		B int64  `type:"pos" arity:"?"`
+		C bool
+		D []string `type:"pos" arity:"*"`
+	}
+	for _, _case := range []struct {
+		args     []string
+		err      error
+		expected cmd
+	}{
+		{nil, userError{`missing argument: "A"`}, cmd{}},
+		{[]string{"abc"}, nil, cmd{A: "abc"}},
+		{[]string{"abc", "123"}, nil, cmd{A: "abc", B: 123}},
+		{[]string{"abc", "123", "first"}, nil, cmd{A: "abc", B: 123, D: []string{"first"}}},
+		{[]string{"abc", "123", "first", "second"}, nil, cmd{A: "abc", B: 123, D: []string{"first", "second"}}},
+		{[]string{"abc", "123", "--c", "first", "second"}, nil, cmd{A: "abc", B: 123, C: true, D: []string{"first", "second"}}},
+	} {
+		var actual cmd
+		err := Args(&actual, _case.args)
+		assert.EqualValues(t, _case.err, err)
+		if _case.err != nil {
+			continue
+		}
+		assert.EqualValues(t, _case.expected, actual)
+	}
 }

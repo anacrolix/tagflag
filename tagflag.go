@@ -1,11 +1,14 @@
-package argparse
+package tagflag
 
 import (
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -29,9 +32,9 @@ type parser struct {
 	description    string
 }
 
-func argsWithDesc(args []arg) (ret []arg) {
-	for _, a := range args {
-		if a.desc != "" {
+func posWithDesc(poss []pos) (ret []pos) {
+	for _, a := range poss {
+		if a.help != "" {
 			ret = append(ret, a)
 		}
 	}
@@ -76,11 +79,11 @@ func (p *parser) WriteUsage(w io.Writer) {
 	if p.description != "" {
 		fmt.Fprintf(w, "\n%s\n", missinggo.Unchomp(p.description))
 	}
-	if awd := argsWithDesc(p.cmd.args); len(awd) != 0 {
+	if awd := posWithDesc(p.cmd.args); len(awd) != 0 {
 		fmt.Fprintf(w, "Arguments:\n")
 		tw := newUsageTabwriter(w)
 		for _, a := range awd {
-			fmt.Fprintf(tw, "  %s\t%s\n", a.name, a.desc)
+			fmt.Fprintf(tw, "  %s\t%s\n", a.name, a.help)
 		}
 		tw.Flush()
 	}
@@ -110,7 +113,7 @@ func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
 			fmt.Fprintf(tw, "-%c, ", f.short)
 		}
 		fmt.Fprintf(tw, "--%s", f.long)
-		fmt.Fprintf(tw, "\t%s\n", f.desc)
+		fmt.Fprintf(tw, "\t%s\n", f.help)
 	}
 	tw.Flush()
 }
@@ -152,23 +155,30 @@ func (ue userError) Error() string {
 	return ue.msg
 }
 
+type logicError struct {
+	msg string
+}
+
 type flag struct {
-	value reflect.Value
+	arg
 	short byte
 	long  string
-	desc  string
 }
 
 type arg struct {
 	value reflect.Value
 	arity byte
-	name  string
-	desc  string
+	help  string
+}
+
+type pos struct {
+	arg
+	name string
 }
 
 type command struct {
 	options optionGroup
-	args    []arg
+	args    []pos
 }
 
 func fieldLongFlagKey(fieldName string) string {
@@ -182,10 +192,12 @@ type optionGroup struct {
 }
 
 func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
-	arg := arg{
-		value: v,
-		name:  sf.Tag.Get("name"),
-		desc:  sf.Tag.Get("desc"),
+	arg := pos{
+		arg: arg{
+			value: v,
+			help:  sf.Tag.Get("help"),
+		},
+		name: sf.Tag.Get("name"),
 	}
 	arity := sf.Tag.Get("arity")
 	if arity == "" {
@@ -201,26 +213,51 @@ func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
 	cmd.args = append(cmd.args, arg)
 }
 
-func (p *parser) skipCannotSet(t reflect.Type) bool {
-	cst := cannotSet(t)
-	if cst == nil {
+var relevantTags = []string{
+	"short", "long", "help",
+}
+
+func hasRelevantTags(sf reflect.StructField) bool {
+	for _, rt := range relevantTags {
+		if sf.Tag.Get(rt) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *parser) skipField(sf reflect.StructField) bool {
+	return p.skipUnsettable && !hasRelevantTags(sf)
+}
+
+func (p *parser) skipCannotSet(v reflect.Value, sf reflect.StructField) bool {
+	if !v.CanSet() {
+		if p.skipField(sf) {
+			return true
+		}
+		raiseUserError(fmt.Sprintf("can't set field %s", sf.Name))
+	}
+	t := unsettableType(v.Type())
+	if t == nil {
 		return false
 	}
-	if p.skipUnsettable {
+	if p.skipField(sf) {
 		return true
 	}
-	raiseUserError(fmt.Sprintf("can't set type %s: %s", fullTypeName(cst), cst))
+	raiseUserError(fmt.Sprintf("can't set type %q on field %s", fullTypeName(t), sf.Name))
 	panic("unreachable")
 }
 
 func (p *parser) addFlag(g *optionGroup, v reflect.Value, sf reflect.StructField) {
-	if p.skipCannotSet(v.Type()) {
+	if p.skipCannotSet(v, sf) {
 		return
 	}
 	f := flag{
-		long:  sf.Tag.Get("long"),
-		desc:  sf.Tag.Get("desc"),
-		value: v,
+		long: sf.Tag.Get("long"),
+		arg: arg{
+			help:  sf.Tag.Get("help"),
+			value: v,
+		},
 	}
 	short := sf.Tag.Get("short")
 	switch len(short) {
@@ -269,7 +306,7 @@ func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) 
 	switch sf.Tag.Get("type") {
 	case "flag":
 		p.addFlag(&cmd.options, fv, sf)
-	case "arg":
+	case "pos":
 		p.addArg(cmd, fv, sf)
 	default:
 		if fv.Kind() == reflect.Struct {
@@ -327,38 +364,43 @@ func (p *parser) raisePrintUsage() {
 }
 
 func (p *parser) parseLongFlag() {
-	f := p.getLongFlag(p.next()[2:])
+	parts := strings.SplitN(p.next()[2:], "=", 2)
+	p.advance()
+	key := parts[0]
+	f := p.getLongFlag(key)
 	if f == nil {
-		if p.printHelp && p.next()[2:] == "help" {
+		if p.printHelp && key == "help" {
 			p.raisePrintUsage()
 		}
-		p.raiseUnexpectedFlag(p.next())
+		p.raiseUnexpectedFlag("--" + key)
 	}
-	if f.value.Kind() == reflect.Bool {
-		f.value.SetBool(true)
+	if len(parts) > 1 {
+		n := p.setValue(f.value, parts[1:2])
+		if n != 1 {
+			panic(n)
+		}
 	} else {
-		p.advance()
-		p.setValue(f.value)
+		p.args = p.args[p.setValue(f.value, p.args):]
 	}
 }
 
 func (p *parser) parseShortFlags() {
-	for i := range p.next()[1:] {
-		c := p.next()[1:][i]
+	next := p.next()[1:]
+	p.advance()
+	for i := range next {
+		c := next[i]
 		f := p.getShortFlag(c)
 		if f == nil {
 			if p.printHelp && c == 'h' {
 				p.raisePrintUsage()
 			}
-			p.raiseUnexpectedFlag(p.next())
+			p.raiseUnexpectedFlag("-" + string(c))
 		}
-		if f.value.Kind() == reflect.Bool {
-			f.value.SetBool(true)
-		} else if i == len(p.next())-2 {
-			p.advance()
-			p.setValue(f.value)
+		if i == len(next)-1 {
+			p.args = p.args[p.setValue(f.value, p.args):]
+			break
 		} else {
-			p.raiseUserError(fmt.Sprintf("%q in %q wants argument", c, p.next()))
+			p.setValue(f.value, nil)
 		}
 	}
 }
@@ -369,7 +411,6 @@ func (p *parser) parseFlag() {
 	} else if strings.HasPrefix(p.next(), "-") {
 		p.parseShortFlags()
 	}
-	p.advance()
 }
 
 func (p *parser) advance() {
@@ -386,6 +427,7 @@ func (p *parser) parseFlagValue(flag flag) {
 }
 
 func (p *parser) parseAny() {
+	log.Println("parsing", p.next())
 	if strings.HasPrefix(p.next(), "-") {
 		p.parseFlag()
 	} else {
@@ -402,8 +444,7 @@ func (p *parser) raiseUserError(msg string) {
 }
 
 func (p *parser) argValue() reflect.Value {
-	na := 0
-	p.nargs++
+	na := -1
 	for _, arg := range p.cmd.args {
 		na++
 		switch arg.arity {
@@ -421,12 +462,47 @@ func (p *parser) argValue() reflect.Value {
 	panic("unreachable")
 }
 
-func argToKind(arg string, kind reflect.Kind) (ret reflect.Value) {
-	switch kind {
-	case reflect.String:
-		ret = reflect.ValueOf(arg)
+type ArgsMarshaler interface {
+	MarshalArgs(args []string) (int, error)
+}
+
+func setValue(args []string, v reflect.Value) int {
+	if am, ok := v.Interface().(ArgsMarshaler); ok {
+		n, err := am.MarshalArgs(args)
+		if err != nil {
+			raiseUserError(fmt.Sprintf("error marshaling args: %s", err))
+		}
+		return n
 	}
-	return
+	if f := typeSetters[v.Type()]; f != nil {
+		n, err := f(v, args)
+		if err != nil {
+			raiseUserError(fmt.Sprintf("error marshaling args: %s", err))
+		}
+		return n
+	}
+	switch v.Type().Kind() {
+	case reflect.String:
+		v.SetString(args[0])
+		return 1
+	case reflect.Slice:
+		x := reflect.New(v.Type().Elem())
+		n := setValue(args, x.Elem())
+		v.Set(reflect.Append(v, x.Elem()))
+		return n
+	case reflect.Bool:
+		v.SetBool(true)
+		return 0
+	case reflect.Int64:
+		x, err := strconv.ParseInt(args[0], 0, 64)
+		if err != nil {
+			raiseUserError(err.Error())
+		}
+		v.SetInt(x)
+		return 1
+	default:
+		panic(v)
+	}
 }
 
 func fullTypeName(t reflect.Type) string {
@@ -436,35 +512,40 @@ func fullTypeName(t reflect.Type) string {
 	return fmt.Sprintf(`"%s".%s`, t.PkgPath(), t.Name())
 }
 
-func (p *parser) setValue(v reflect.Value) {
-	switch v.Kind() {
-	case reflect.Slice:
-		v.Set(reflect.Append(v, argToKind(p.next(), v.Type().Elem().Kind())))
-	case reflect.Ptr:
-		if v.IsNil() {
-			nv := reflect.New(v.Type().Elem())
-			p.setValue(nv.Elem())
-			v.Set(nv)
-		} else {
-			p.setValue(v.Elem())
-		}
-	default:
-		x := argToKind(p.next(), v.Kind())
-		if !x.IsValid() {
-			raiseUserError(fmt.Sprintf("can't convert %q to type %s", p.next(), fullTypeName(v.Type())))
-		}
-		v.Set(x)
+// Returns number of args consumed.
+func (p *parser) setValue(v reflect.Value, args []string) (n int) {
+	return setValue(args, v)
+}
+
+var (
+	typeSetters map[reflect.Type]func(reflect.Value, []string) (int, error)
+)
+
+func init() {
+	typeSetters = map[reflect.Type]func(reflect.Value, []string) (int, error){
+		reflect.TypeOf(&net.TCPAddr{}): func(v reflect.Value, args []string) (n int, err error) {
+			ta, err := net.ResolveTCPAddr("tcp", args[0])
+			if err != nil {
+				return
+			}
+			v.Set(reflect.ValueOf(ta))
+			return 1, nil
+		},
 	}
 }
 
-func cannotSet(t reflect.Type) (ret reflect.Type) {
+func unsettableType(t reflect.Type) (ret reflect.Type) {
+	if typeSetters[t] != nil {
+		return
+	}
 	switch t.Kind() {
 	case reflect.Bool, reflect.String:
 		return
 	case reflect.Ptr:
-		ret = cannotSet(t.Elem())
+		ret = unsettableType(t.Elem())
 	case reflect.Slice:
-		ret = cannotSet(t.Elem())
+		ret = unsettableType(t.Elem())
+	case reflect.Int64:
 	default:
 		ret = t
 	}
@@ -472,9 +553,9 @@ func cannotSet(t reflect.Type) (ret reflect.Type) {
 }
 
 func (p *parser) parseArg() {
-	p.setValue(p.argValue())
-	p.nargs++
-	p.advance()
+	n := p.setValue(p.argValue(), p.args)
+	p.nargs += n
+	p.args = p.args[n:]
 }
 
 func Argv(cmd interface{}, opts ...parseOpt) {
