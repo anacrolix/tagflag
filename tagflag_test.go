@@ -43,7 +43,7 @@ func TestBasic(t *testing.T) {
 		},
 	} {
 		var actual simpleCmd
-		err := Args(&actual, _case.args)
+		err := ParseEx(&actual, _case.args)
 		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
 			continue
@@ -106,7 +106,7 @@ func TestNotBasic(t *testing.T) {
 		},
 	} {
 		var actual cmd
-		err := Args(&actual, _case.args)
+		err := ParseEx(&actual, _case.args)
 		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
 			continue
@@ -118,19 +118,19 @@ func TestNotBasic(t *testing.T) {
 func TestBadCommand(t *testing.T) {
 	assert.EqualValues(t,
 		userError{"cmd must be ptr or nil"},
-		Args(struct{}{}, nil))
-	assert.NoError(t, Args(new(struct{}), nil))
-	assert.NoError(t, Args(nil, nil))
+		ParseEx(struct{}{}, nil))
+	assert.NoError(t, ParseEx(new(struct{}), nil))
+	assert.NoError(t, ParseEx(nil, nil))
 }
 
 func TestVarious(t *testing.T) {
 	a := &struct {
 		A string `type:"pos" arity:"+"`
 	}{}
-	t.Log(Args(a, nil))
-	t.Log(Args(a, []string{"a"}))
+	t.Log(ParseEx(a, nil))
+	t.Log(ParseEx(a, []string{"a"}))
 	assert.EqualValues(t, "a", a.A)
-	t.Log(Args(a, []string{"a", "b"}))
+	t.Log(ParseEx(a, []string{"a", "b"}))
 	assert.EqualValues(t, "b", a.A)
 }
 
@@ -154,7 +154,7 @@ func TestBasicPositionalArities(t *testing.T) {
 		{[]string{"abc", "123", "--c", "first", "second"}, nil, cmd{A: "abc", B: 123, C: true, D: []string{"first", "second"}}},
 	} {
 		var actual cmd
-		err := Args(&actual, _case.args)
+		err := ParseEx(&actual, _case.args)
 		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
 			continue

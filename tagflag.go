@@ -649,8 +649,10 @@ func (p *parser) parseArg() {
 	p.args = p.args[n:]
 }
 
-func Argv(cmd interface{}, opts ...parseOpt) {
-	err := Args(cmd, os.Args[1:], append([]parseOpt{
+// Parse os.Args, with implicit help flag, program name, and exiting on all
+// errors.
+func Parse(cmd interface{}, opts ...parseOpt) {
+	err := ParseEx(cmd, os.Args[1:], append([]parseOpt{
 		ExitOnError(), HelpFlag(), Program(filepath.Base(os.Args[0])),
 	}, opts...)...)
 	if err != nil {
@@ -690,7 +692,9 @@ func Description(desc string) parseOpt {
 	}
 }
 
-func Args(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
+// Parse the provided command-line-style arguments. There are no default
+// options.
+func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 	p := parser{
 		args:        args,
 		errorWriter: os.Stderr,
