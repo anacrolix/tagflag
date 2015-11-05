@@ -3,6 +3,7 @@ package tagflag
 import (
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -60,19 +61,24 @@ func (p *parser) WriteUsage(w io.Writer) {
 	for _, arg := range p.cmd.args {
 		fs := func() string {
 			switch arg.arity {
-			case '-':
-				return "<%s>"
-			case '?':
+			case arityZeroOrOne:
 				return "[%s]"
-			case '+':
+			case arityOneOrMore:
 				return "%s..."
-			case '*':
+			case arityZeroOrMore:
 				return "[%s...]"
 			default:
-				panic(arg.arity)
+				return "<%s>"
 			}
 		}()
-		fmt.Fprintf(w, " "+fs, arg.name)
+		if arg.arity != 0 {
+			fmt.Fprintf(w, " "+fs, arg.name)
+		}
+		if arg.arity > 1 {
+			for range iter.N(int(arg.arity - 1)) {
+				fmt.Fprintf(w, " "+fs, arg.name)
+			}
+		}
 	}
 	fmt.Fprintf(w, "\n")
 	if p.description != "" {
@@ -128,13 +134,11 @@ func (p *parser) assertRequiredArgs() {
 	ra := 0
 	for _, a := range p.cmd.args {
 		switch a.arity {
-		case '1':
-			ra++
-		case '?', '*':
-		case '+':
+		case arityZeroOrMore, arityZeroOrOne:
+		case arityOneOrMore:
 			ra++
 		default:
-			panic(a.arity)
+			ra += int(a.arity)
 		}
 		if p.nargs < ra {
 			p.raiseUserError(fmt.Sprintf("missing argument: %q", a.name))
@@ -146,27 +150,23 @@ func (p *parser) next() string {
 	return p.args[0]
 }
 
-type userError struct {
-	msg string
-}
-
-func (ue userError) Error() string {
-	return ue.msg
-}
-
-type logicError struct {
-	msg string
-}
-
 type flag struct {
 	arg
 	short byte
 	long  string
 }
 
+const (
+	arityOneOrMore  = -1
+	arityZeroOrMore = -2
+	arityZeroOrOne  = -3
+)
+
+type arity int
+
 type arg struct {
 	value reflect.Value
-	arity byte
+	arity arity
 	help  string
 }
 
@@ -190,6 +190,22 @@ type optionGroup struct {
 	flags []flag
 }
 
+func parseArityString(s string) (a arity, err error) {
+	switch s {
+	case "*":
+		a = arityZeroOrMore
+	case "+":
+		a = arityOneOrMore
+	case "?":
+		a = arityZeroOrOne
+	default:
+		var ui uint64
+		ui, err = strconv.ParseUint(s, 10, 0)
+		a = arity(ui)
+	}
+	return
+}
+
 func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
 	arg := pos{
 		arg: arg{
@@ -205,7 +221,11 @@ func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
 	if len(arity) != 1 {
 		p.raiseUserError(fmt.Sprintf("bad arity in tag: %q", sf.Tag))
 	}
-	arg.arity = arity[0]
+	var err error
+	arg.arity, err = parseArityString(arity)
+	if err != nil {
+		raiseLogicError(fmt.Sprintf("bad arity string %q: %s", arity, err))
+	}
 	if arg.name == "" {
 		arg.name = strings.ToUpper(xstrings.ToSnakeCase(sf.Name))
 	}
@@ -226,7 +246,13 @@ func hasRelevantTags(sf reflect.StructField) bool {
 }
 
 func (p *parser) skipField(sf reflect.StructField) bool {
-	return p.skipUnsettable && !hasRelevantTags(sf)
+	if p.skipUnsettable && !hasRelevantTags(sf) {
+		return true
+	}
+	if sf.Tag.Get("tagflag") == "skip" {
+		return true
+	}
+	return false
 }
 
 func (p *parser) skipCannotSet(v reflect.Value, sf reflect.StructField) bool {
@@ -234,7 +260,7 @@ func (p *parser) skipCannotSet(v reflect.Value, sf reflect.StructField) bool {
 		if p.skipField(sf) {
 			return true
 		}
-		raiseUserError(fmt.Sprintf("can't set field %s", sf.Name))
+		raiseLogicError(fmt.Sprintf("can't set field %s", sf.Name))
 	}
 	t := unsettableType(v.Type())
 	if t == nil {
@@ -243,7 +269,7 @@ func (p *parser) skipCannotSet(v reflect.Value, sf reflect.StructField) bool {
 	if p.skipField(sf) {
 		return true
 	}
-	raiseUserError(fmt.Sprintf("can't set type %q on field %s", fullTypeName(t), sf.Name))
+	raiseLogicError(fmt.Sprintf("can't marshal to field %s of type %s", sf.Name, fullTypeName(t)))
 	panic("unreachable")
 }
 
@@ -256,6 +282,7 @@ func (p *parser) addFlag(g *optionGroup, v reflect.Value, sf reflect.StructField
 		arg: arg{
 			help:  sf.Tag.Get("help"),
 			value: v,
+			arity: arity(unequalsArity(v.Type())),
 		},
 	}
 	short := sf.Tag.Get("short")
@@ -374,12 +401,19 @@ func (p *parser) parseLongFlag() {
 		p.raiseUnexpectedFlag("--" + key)
 	}
 	if len(parts) > 1 {
-		n := p.setValue(f.value, parts[1:2])
+		n, err := p.setValue(f.arg, parts[1:2], true)
+		if err != nil {
+			raiseUserError(fmt.Sprintf("error setting %s: %s", "--"+key, err))
+		}
 		if n != 1 {
 			panic(n)
 		}
 	} else {
-		p.args = p.args[p.setValue(f.value, p.args):]
+		n, err := p.setValue(f.arg, p.args, false)
+		if err != nil {
+			raiseUserError(fmt.Sprintf("error setting %s: %s", "--"+key, err))
+		}
+		p.args = p.args[n:]
 	}
 }
 
@@ -396,10 +430,14 @@ func (p *parser) parseShortFlags() {
 			p.raiseUnexpectedFlag("-" + string(c))
 		}
 		if i == len(next)-1 {
-			p.args = p.args[p.setValue(f.value, p.args):]
+			n, err := p.setValue(f.arg, p.args, false)
+			if err != nil {
+				raiseUserError(fmt.Sprintf("-%c: %s", c, err))
+			}
+			p.args = p.args[n:]
 			break
 		} else {
-			p.setValue(f.value, nil)
+			p.setValue(f.arg, nil, false)
 		}
 	}
 }
@@ -438,24 +476,28 @@ func raiseUserError(msg string) {
 	exc.Raise(userError{msg})
 }
 
+func raiseLogicError(msg string) {
+	exc.Raise(logicError{msg})
+}
+
 func (p *parser) raiseUserError(msg string) {
 	raiseUserError(msg)
 }
 
-func (p *parser) argValue() reflect.Value {
-	na := -1
+func (p *parser) argPos() pos {
+	argPos := 0
 	for _, arg := range p.cmd.args {
-		na++
 		switch arg.arity {
-		case '1', '?':
-			if na != p.nargs {
-				continue
-			}
-		case '+', '*':
+		case arityZeroOrOne:
+			argPos++
+		case arityOneOrMore, arityZeroOrMore:
+			argPos = math.MaxInt32
 		default:
-			panic(arg.arity)
+			argPos += int(arg.arity)
 		}
-		return arg.value
+		if argPos > p.nargs {
+			return arg
+		}
 	}
 	p.raiseUserError(fmt.Sprintf("excess argument: %q", p.next()))
 	panic("unreachable")
@@ -490,8 +532,20 @@ func setValue(args []string, v reflect.Value) int {
 		v.Set(reflect.Append(v, x.Elem()))
 		return n
 	case reflect.Bool:
-		v.SetBool(true)
-		return 0
+		b := true
+		switch len(args) {
+		case 0:
+		case 1:
+			var err error
+			b, err = strconv.ParseBool(args[0])
+			if err != nil {
+				raiseUserError(err.Error())
+			}
+		default:
+			raiseUserError(fmt.Sprintf("bad argument count to bool: %d", len(args)))
+		}
+		v.SetBool(b)
+		return len(args)
 	case reflect.Int64:
 		x, err := strconv.ParseInt(args[0], 0, 64)
 		if err != nil {
@@ -512,8 +566,35 @@ func fullTypeName(t reflect.Type) string {
 }
 
 // Returns number of args consumed.
-func (p *parser) setValue(v reflect.Value, args []string) (n int) {
-	return setValue(args, v)
+func (p *parser) setValue(arg arg, args []string, equalsValue bool) (n int, err error) {
+	if !equalsValue {
+		switch arg.arity {
+		case arityOneOrMore, arityZeroOrMore:
+		case arityZeroOrOne:
+			if len(args) > 1 {
+				args = args[:1]
+			}
+		default:
+			if len(args) > int(arg.arity) {
+				args = args[:arg.arity]
+			}
+		}
+		switch arg.arity {
+		case arityZeroOrOne, arityZeroOrMore:
+		case arityOneOrMore:
+			if len(args) < 1 {
+				err = fmt.Errorf("expected one or more arguments")
+				return
+			}
+		default:
+			if len(args) != int(arg.arity) {
+				err = fmt.Errorf("expected %d arguments", arg.arity)
+				return
+			}
+		}
+	}
+	n = setValue(args, arg.value)
+	return
 }
 
 var (
@@ -531,6 +612,13 @@ func init() {
 			return 1, nil
 		},
 	}
+}
+
+func unequalsArity(t reflect.Type) int {
+	if t.Kind() == reflect.Bool {
+		return 0
+	}
+	return 1
 }
 
 func unsettableType(t reflect.Type) (ret reflect.Type) {
@@ -552,7 +640,11 @@ func unsettableType(t reflect.Type) (ret reflect.Type) {
 }
 
 func (p *parser) parseArg() {
-	n := p.setValue(p.argValue(), p.args)
+	pos := p.argPos()
+	n, err := p.setValue(pos.arg, p.args, false)
+	if err != nil {
+		raiseUserError(fmt.Sprintf("%s: %s", pos.name, err))
+	}
 	p.nargs += n
 	p.args = p.args[n:]
 }
@@ -611,21 +703,26 @@ func Args(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 		p.addCmd(cmd)
 		p.parse()
 	}, func(e *exc.Exception) {
-		// log.Printf("%#v", e)
-		ue, ok := e.Value.(userError)
-		if ok {
-			err = ue
-			return
-		}
-		if _, ok := e.Value.(printHelp); ok {
+		switch v := e.Value.(type) {
+		case userError, logicError:
+			err = v.(error)
+		case printHelp:
 			p.WriteUsage(os.Stdout)
 			os.Exit(0)
+		default:
+			e.Raise()
 		}
-		e.Raise()
 	})
 	if err != nil && p.exitOnError {
-		fmt.Fprintf(p.errorWriter, "%s\n", err)
-		os.Exit(2)
+		fmt.Fprintf(p.errorWriter, "tagflag: %s\n", err)
+		code := func() int {
+			if _, ok := err.(userError); ok {
+				return 2
+			} else {
+				return 1
+			}
+		}()
+		os.Exit(code)
 	}
 	return
 }

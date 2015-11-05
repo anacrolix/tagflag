@@ -96,6 +96,14 @@ func TestNotBasic(t *testing.T) {
 				Torrent:    []string{"a.torrent", "b.torrent"},
 			},
 		},
+		{
+			[]string{"--no-upload=true", "a.torrent", "--no-upload=false"},
+			nil,
+			cmd{
+				NoUpload: false,
+				Torrent:  []string{"a.torrent"},
+			},
+		},
 	} {
 		var actual cmd
 		err := Args(&actual, _case.args)
@@ -113,10 +121,6 @@ func TestBadCommand(t *testing.T) {
 		Args(struct{}{}, nil))
 	assert.NoError(t, Args(new(struct{}), nil))
 	assert.NoError(t, Args(nil, nil))
-	assert.EqualValues(t, logicError{},
-		Args(&struct {
-			A string `type:"pos" arity:"*"`
-		}{}, nil))
 }
 
 func TestVarious(t *testing.T) {
