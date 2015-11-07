@@ -504,7 +504,11 @@ func (p *parser) argPos() pos {
 }
 
 type ArgsMarshaler interface {
-	MarshalArgs(args []string) (int, error)
+	// Called with arguments based on the field's arity. May be passed exactly
+	// one argument in for example the case where a flag is called in the
+	// --option=value style. Should return the number of arguments actually
+	// consumed.
+	MarshalArgs(args []string) (n int, err error)
 }
 
 func setValue(args []string, v reflect.Value) int {
@@ -598,10 +602,6 @@ func (p *parser) setValue(arg arg, args []string, equalsValue bool) (n int, err 
 }
 
 var (
-	typeSetters map[reflect.Type]func(reflect.Value, []string) (int, error)
-)
-
-func init() {
 	typeSetters = map[reflect.Type]func(reflect.Value, []string) (int, error){
 		reflect.TypeOf(&net.TCPAddr{}): func(v reflect.Value, args []string) (n int, err error) {
 			ta, err := net.ResolveTCPAddr("tcp", args[0])
@@ -612,7 +612,7 @@ func init() {
 			return 1, nil
 		},
 	}
-}
+)
 
 func unequalsArity(t reflect.Type) int {
 	if t.Kind() == reflect.Bool {
@@ -660,40 +660,8 @@ func Parse(cmd interface{}, opts ...parseOpt) {
 	}
 }
 
-type parseOpt func(p *parser)
-
-func ExitOnError() parseOpt {
-	return func(p *parser) {
-		p.exitOnError = true
-	}
-}
-
-func SkipBadTypes() parseOpt {
-	return func(p *parser) {
-		p.skipUnsettable = true
-	}
-}
-
-func HelpFlag() parseOpt {
-	return func(p *parser) {
-		p.printHelp = true
-	}
-}
-
-func Program(program string) parseOpt {
-	return func(p *parser) {
-		p.program = program
-	}
-}
-
-func Description(desc string) parseOpt {
-	return func(p *parser) {
-		p.description = desc
-	}
-}
-
-// Parse the provided command-line-style arguments. There are no default
-// options.
+// Parse the provided command-line-style arguments, by default returning any
+// errors.
 func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
 	p := parser{
 		args:        args,
