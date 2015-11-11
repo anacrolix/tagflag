@@ -88,7 +88,7 @@ func (p *parser) WriteUsage(w io.Writer) {
 		fmt.Fprintf(w, "Arguments:\n")
 		tw := newUsageTabwriter(w)
 		for _, a := range awd {
-			fmt.Fprintf(tw, "  %s\t%s\n", a.name, a.help)
+			fmt.Fprintf(tw, "  %s\t%s\t%s\n", a.name, a.value.Type(), a.help)
 		}
 		tw.Flush()
 	}
@@ -115,10 +115,15 @@ func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
 	for _, f := range g.flags {
 		fmt.Fprint(tw, "  ")
 		if f.short != 0 {
-			fmt.Fprintf(tw, "-%c, ", f.short)
+			fmt.Fprintf(tw, "-%c", f.short)
 		}
-		fmt.Fprintf(tw, "--%s", f.long)
-		fmt.Fprintf(tw, "\t%s\n", f.help)
+		if f.short != 0 && f.long != "" {
+			fmt.Fprintf(tw, ", ")
+		}
+		if f.long != "" {
+			fmt.Fprintf(tw, "--%s", f.long)
+		}
+		fmt.Fprintf(tw, "\t%s\t%s\n", f.value.Type(), f.help)
 	}
 	tw.Flush()
 }
@@ -260,7 +265,7 @@ func (p *parser) skipCannotSet(v reflect.Value, sf reflect.StructField) bool {
 		if p.skipField(sf) {
 			return true
 		}
-		raiseLogicError(fmt.Sprintf("can't set field %s", sf.Name))
+		raiseLogicError(fmt.Sprintf("can't set field %s, is it exported?", sf.Name))
 	}
 	t := unsettableType(v.Type())
 	if t == nil {
@@ -293,8 +298,11 @@ func (p *parser) addFlag(g *optionGroup, v reflect.Value, sf reflect.StructField
 	default:
 		p.raiseUserError(fmt.Sprintf("bad short tag: %q", sf.Tag))
 	}
-	if f.long == "" {
+	if f.long == "" && len(sf.Name) > 1 {
 		f.long = strings.Replace(xstrings.ToSnakeCase(sf.Name), "_", "-", -1)
+	}
+	if f.long == "" && f.short == 0 {
+		f.short = strings.ToLower(string(sf.Name[0]))[0]
 	}
 	g.flags = append(g.flags, f)
 }

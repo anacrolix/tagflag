@@ -160,7 +160,7 @@ func TestBasicPositionalArities(t *testing.T) {
 		{[]string{"abc", "123"}, nil, cmd{A: "abc", B: 123}},
 		{[]string{"abc", "123", "first"}, nil, cmd{A: "abc", B: 123, D: []string{"first"}}},
 		{[]string{"abc", "123", "first", "second"}, nil, cmd{A: "abc", B: 123, D: []string{"first", "second"}}},
-		{[]string{"abc", "123", "--c", "first", "second"}, nil, cmd{A: "abc", B: 123, C: true, D: []string{"first", "second"}}},
+		{[]string{"abc", "123", "-c", "first", "second"}, nil, cmd{A: "abc", B: 123, C: true, D: []string{"first", "second"}}},
 	} {
 		var actual cmd
 		err := ParseEx(&actual, _case.args)
