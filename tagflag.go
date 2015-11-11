@@ -550,12 +550,19 @@ func setValue(args []string, v reflect.Value) int {
 		}
 		v.SetBool(b)
 		return len(args)
-	case reflect.Int64:
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
 		x, err := strconv.ParseInt(args[0], 0, 64)
 		if err != nil {
 			raiseUserError(err.Error())
 		}
 		v.SetInt(x)
+		return 1
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		x, err := strconv.ParseUint(args[0], 0, 64)
+		if err != nil {
+			raiseUserError(err.Error())
+		}
+		v.SetUint(x)
 		return 1
 	default:
 		panic(v)
@@ -627,12 +634,12 @@ func unsettableType(t reflect.Type) (ret reflect.Type) {
 	}
 	switch t.Kind() {
 	case reflect.Bool, reflect.String:
-		return
 	case reflect.Ptr:
 		ret = unsettableType(t.Elem())
 	case reflect.Slice:
 		ret = unsettableType(t.Elem())
-	case reflect.Int64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 	default:
 		ret = t
 	}

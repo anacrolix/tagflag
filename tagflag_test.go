@@ -134,6 +134,15 @@ func TestVarious(t *testing.T) {
 	assert.EqualValues(t, "b", a.A)
 }
 
+func TestUint(t *testing.T) {
+	var a struct {
+		A uint
+	}
+	assert.Error(t, ParseEx(&a, []string{"-a"}))
+	assert.Error(t, ParseEx(&a, []string{"-a", "-1"}))
+	assert.NoError(t, ParseEx(&a, []string{"-a", "42"}))
+}
+
 func TestBasicPositionalArities(t *testing.T) {
 	type cmd struct {
 		A string `type:"pos"`
