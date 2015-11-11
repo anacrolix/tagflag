@@ -451,7 +451,7 @@ func (p *parser) parseShortFlags() {
 }
 
 func (p *parser) parseFlag() {
-	if strings.HasPrefix(p.next(), "--") {
+	if len(p.next()) > 2 && strings.HasPrefix(p.next(), "--") {
 		p.parseLongFlag()
 	} else if strings.HasPrefix(p.next(), "-") {
 		p.parseShortFlags()
