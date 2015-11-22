@@ -88,7 +88,7 @@ func (p *parser) WriteUsage(w io.Writer) {
 		fmt.Fprintf(w, "Arguments:\n")
 		tw := newUsageTabwriter(w)
 		for _, a := range awd {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\n", a.name, a.value.Type(), a.help)
+			fmt.Fprintf(tw, "  %s\t(%s)\t%s\n", a.name, a.value.Type(), a.help)
 		}
 		tw.Flush()
 	}
@@ -123,7 +123,7 @@ func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
 		if f.long != "" {
 			fmt.Fprintf(tw, "--%s", f.long)
 		}
-		fmt.Fprintf(tw, "\t%s\t%s\n", f.value.Type(), f.help)
+		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), f.help)
 	}
 	tw.Flush()
 }
