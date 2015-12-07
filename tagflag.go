@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/anacrolix/exc"
 	"github.com/anacrolix/missinggo"
@@ -624,6 +625,14 @@ var (
 				return
 			}
 			v.Set(reflect.ValueOf(ta))
+			return 1, nil
+		},
+		reflect.TypeOf(time.Duration(0)): func(v reflect.Value, args []string) (n int, err error) {
+			t, err := time.ParseDuration(args[0])
+			if err != nil {
+				return
+			}
+			v.Set(reflect.ValueOf(t))
 			return 1, nil
 		},
 	}
