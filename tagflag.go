@@ -520,7 +520,7 @@ type ArgsMarshaler interface {
 }
 
 func setValue(args []string, v reflect.Value) int {
-	if am, ok := v.Interface().(ArgsMarshaler); ok {
+	if am, ok := v.Addr().Interface().(ArgsMarshaler); ok {
 		n, err := am.MarshalArgs(args)
 		if err != nil {
 			raiseUserError(fmt.Sprintf("error marshaling args: %s", err))

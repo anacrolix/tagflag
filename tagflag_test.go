@@ -171,3 +171,12 @@ func TestBasicPositionalArities(t *testing.T) {
 		assert.EqualValues(t, _case.expected, actual)
 	}
 }
+
+func TestBytes(t *testing.T) {
+	var cmd struct {
+		B Bytes
+	}
+	err := ParseEx(&cmd, []string{"-b", "100g"})
+	assert.NoError(t, err)
+	assert.EqualValues(t, 100e9, cmd.B)
+}
