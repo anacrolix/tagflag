@@ -617,26 +617,47 @@ func (p *parser) setValue(arg arg, args []string, equalsValue bool) (n int, err 
 	return
 }
 
-var (
-	typeSetters = map[reflect.Type]func(reflect.Value, []string) (int, error){
-		reflect.TypeOf(&net.TCPAddr{}): func(v reflect.Value, args []string) (n int, err error) {
-			ta, err := net.ResolveTCPAddr("tcp", args[0])
-			if err != nil {
-				return
-			}
-			v.Set(reflect.ValueOf(ta))
-			return 1, nil
-		},
-		reflect.TypeOf(time.Duration(0)): func(v reflect.Value, args []string) (n int, err error) {
-			t, err := time.ParseDuration(args[0])
-			if err != nil {
-				return
-			}
-			v.Set(reflect.ValueOf(t))
-			return 1, nil
-		},
+func addTypeSetter(parser interface{}) {
+	parserValue := reflect.ValueOf(parser)
+	parserType := parserValue.Type()
+	setType := parserType.Out(0)
+	_, ok := typeSetters[setType]
+	if ok {
+		panic("already added")
 	}
-)
+	typeSetters[setType] = func(setValue reflect.Value, args []string) (arity int, err error) {
+		var in []reflect.Value
+		for i := range iter.N(parserType.NumIn()) {
+			in = append(in, reflect.ValueOf(args[i]))
+		}
+		out := parserValue.Call(in)
+		setValue.Set(out[0])
+		errInt := out[1].Interface()
+		if errInt != nil {
+			err = errInt.(error)
+		}
+		arity = parserType.NumIn()
+		return
+	}
+}
+
+// Takes arguments and sets the value, returning the number of arguments
+// consumed, and any parsing error.
+type customSetter func(reflect.Value, []string) (int, error)
+
+var typeSetters = map[reflect.Type]func(reflect.Value, []string) (int, error){}
+
+func init() {
+	addTypeSetter(func(urlStr string) (*url.URL, error) {
+		return url.Parse(urlStr)
+	})
+	addTypeSetter(func(s string) (*net.TCPAddr, error) {
+		return net.ResolveTCPAddr("tcp", s)
+	})
+	addTypeSetter(func(s string) (time.Duration, error) {
+		return time.ParseDuration(s)
+	})
+}
 
 func unequalsArity(t reflect.Type) int {
 	if t.Kind() == reflect.Bool {
