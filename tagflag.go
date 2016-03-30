@@ -521,6 +521,18 @@ type ArgsMarshaler interface {
 	MarshalArgs(args []string) (n int, err error)
 }
 
+// Apply a custom value function that returns a pointer, to a non-pointer
+// value of that type. va is the address of the value to be set.
+func setValueAddr(args []string, va reflect.Value, f customSetter) (arity int) {
+	fv := reflect.New(va.Type())
+	arity, err := f(fv.Elem(), args)
+	if err != nil {
+		panic(err)
+	}
+	va.Elem().Set(fv.Elem().Elem())
+	return
+}
+
 func setValue(args []string, v reflect.Value) int {
 	if am, ok := v.Addr().Interface().(ArgsMarshaler); ok {
 		n, err := am.MarshalArgs(args)
@@ -535,6 +547,9 @@ func setValue(args []string, v reflect.Value) int {
 			raiseUserError(fmt.Sprintf("error marshaling args: %s", err))
 		}
 		return n
+	}
+	if st := typeSetters[v.Addr().Type()]; st != nil {
+		return setValueAddr(args, v.Addr(), st)
 	}
 	switch v.Type().Kind() {
 	case reflect.String:
@@ -669,6 +684,9 @@ func unequalsArity(t reflect.Type) int {
 
 func unsettableType(t reflect.Type) (ret reflect.Type) {
 	if typeSetters[t] != nil {
+		return
+	}
+	if typeSetters[reflect.PtrTo(t)] != nil {
 		return
 	}
 	switch t.Kind() {

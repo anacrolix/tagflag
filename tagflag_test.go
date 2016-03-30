@@ -1,6 +1,9 @@
 package tagflag
 
 import (
+	"log"
+	"net"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +182,18 @@ func TestBytes(t *testing.T) {
 	err := ParseEx(&cmd, []string{"-b", "100g"})
 	assert.NoError(t, err)
 	assert.EqualValues(t, 100e9, cmd.B)
+}
+
+func TestPtrToCustom(t *testing.T) {
+	var cmd struct {
+		Addr net.TCPAddr
+	}
+	err := ParseEx(&cmd, []string{"--addr", ":443"})
+	assert.NoError(t, err)
+	assert.EqualValues(t, ":443", cmd.Addr.String())
+}
+
+func TestMain(m *testing.M) {
+	log.SetFlags(log.Lshortfile)
+	os.Exit(m.Run())
 }
