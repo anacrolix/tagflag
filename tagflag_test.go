@@ -121,9 +121,7 @@ func TestNotBasic(t *testing.T) {
 }
 
 func TestBadCommand(t *testing.T) {
-	assert.EqualValues(t,
-		userError{"cmd must be ptr or nil"},
-		ParseEx(struct{}{}, nil))
+	assert.Panics(t, func() { ParseEx(struct{}{}, nil) })
 	assert.NoError(t, ParseEx(new(struct{}), nil))
 	assert.NoError(t, ParseEx(nil, nil))
 }
@@ -210,4 +208,11 @@ func TestDefaultLongFlagName(t *testing.T) {
 	assert.EqualValues(t, "addr", fieldLongFlagKey("Addr"))
 	assert.EqualValues(t, "v", fieldLongFlagKey("V"))
 	assert.EqualValues(t, "a", fieldLongFlagKey("A"))
+}
+
+func TestPrintHelp(t *testing.T) {
+	err := ParseEx(nil, []string{"-h"}, HelpFlag())
+	assert.Equal(t, PrintHelp, err)
+	err = ParseEx(nil, []string{"-help"}, HelpFlag())
+	assert.Equal(t, PrintHelp, err)
 }

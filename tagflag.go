@@ -1,6 +1,7 @@
 package tagflag
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -121,13 +122,6 @@ func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
 		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), f.help)
 	}
 	tw.Flush()
-}
-
-func (p *parser) parse() {
-	for len(p.args) != 0 {
-		p.parseAny()
-	}
-	p.assertRequiredArgs()
 }
 
 func (p *parser) assertRequiredArgs() {
@@ -382,6 +376,9 @@ func (p *parser) getLongFlag(name string) *flag {
 			}
 		}
 	}
+	if p.printHelp && (name == "h" || name == "help") {
+		p.raisePrintUsage()
+	}
 	return nil
 }
 
@@ -389,10 +386,10 @@ func (p *parser) raiseUnexpectedFlag(flag string) {
 	p.raiseUserError(fmt.Sprintf("unexpected flag: %q", flag))
 }
 
-type printHelp struct{}
+var PrintHelp = errors.New("help flag")
 
 func (p *parser) raisePrintUsage() {
-	exc.Raise(printHelp{})
+	exc.Raise(PrintHelp)
 }
 
 const longFlagPrefix = "-"
@@ -693,31 +690,48 @@ func Parse(cmd interface{}, opts ...parseOpt) {
 	}
 }
 
-// Parse the provided command-line-style arguments, by default returning any
-// errors.
-func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
-	p := parser{
-		args:        args,
+func newParser(cmd interface{}, parseOpts ...parseOpt) (p *parser) {
+	p = &parser{
 		errorWriter: os.Stderr,
 		program:     "program",
 	}
 	for _, po := range parseOpts {
-		po(&p)
+		po(p)
 	}
+	p.addCmd(cmd)
+	return
+}
+
+// Parse the provided command-line-style arguments, by default returning any
+// errors.
+func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
+	p := newParser(cmd, parseOpts...)
+	return p.parse(args)
+}
+
+func (p *parser) parse(args []string) (err error) {
+	p.args = args
 	exc.TryCatch(func() {
-		p.addCmd(cmd)
-		p.parse()
+		for len(p.args) != 0 {
+			p.parseAny()
+		}
+		// TODO: I don't think this is working, add tests.
+		p.assertRequiredArgs()
 	}, func(e *exc.Exception) {
+		if e.Value == PrintHelp {
+			err = e.Value.(error)
+			return
+		}
 		switch v := e.Value.(type) {
 		case userError, logicError:
 			err = v.(error)
-		case printHelp:
-			p.WriteUsage(os.Stdout)
-			os.Exit(0)
 		default:
 			e.Raise()
 		}
 	})
+	if err == PrintHelp {
+		return
+	}
 	if err != nil && p.exitOnError {
 		fmt.Fprintf(p.errorWriter, "tagflag: %s\n", err)
 		code := func() int {
@@ -732,4 +746,5 @@ func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) 
 	return
 }
 
+// Struct fields after this one are considered positional arguments.
 type StartPos struct{}
