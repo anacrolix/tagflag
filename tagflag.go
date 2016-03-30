@@ -344,7 +344,7 @@ func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) 
 	case "pos":
 		p.addArg(cmd, fv, sf)
 	default:
-		if fv.Kind() == reflect.Struct {
+		if fv.Kind() == reflect.Struct && unsettableType(fv.Type()) != nil {
 			name := sf.Tag.Get("name")
 			if name == "" {
 				name = sf.Name
