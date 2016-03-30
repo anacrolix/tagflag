@@ -682,9 +682,16 @@ func (p *parser) parseArg() {
 // Parse os.Args, with implicit help flag, program name, and exiting on all
 // errors.
 func Parse(cmd interface{}, opts ...parseOpt) {
-	err := ParseEx(cmd, os.Args[1:], append([]parseOpt{
-		ExitOnError(), HelpFlag(), Program(filepath.Base(os.Args[0])),
+	p := newParser(cmd, append([]parseOpt{
+		ExitOnError(),
+		HelpFlag(),
+		Program(filepath.Base(os.Args[0])),
 	}, opts...)...)
+	err := p.parse(os.Args[1:])
+	if err == PrintHelp {
+		p.WriteUsage(os.Stdout)
+		os.Exit(0)
+	}
 	if err != nil {
 		panic(err)
 	}
