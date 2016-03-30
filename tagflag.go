@@ -338,26 +338,6 @@ func (p *parser) addCmd(cmd interface{}) {
 	})
 }
 
-// func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) {
-// 	switch sf.Tag.Get("type") {
-// 	case "flag":
-// 		p.addFlag(&cmd.options, fv, sf)
-// 	case "pos":
-// 		p.addArg(cmd, fv, sf)
-// 	default:
-// 		if fv.Kind() == reflect.Struct && unsettableType(fv.Type()) != nil {
-// 			name := sf.Tag.Get("name")
-// 			if name == "" {
-// 				name = sf.Name
-// 			}
-// 			p.addOptionGroup(p.newOptionGroup(name), fv)
-// 		} else {
-// 			p.addFlag(&cmd.options, fv, sf)
-// 			// p.raiseUserError(fmt.Sprintf("bad type in tag for %s: %q", sf.Name, sf.Tag))
-// 		}
-// 	}
-// }
-
 func (p *parser) newOptionGroup(name string) *optionGroup {
 	p.optGroups = append(p.optGroups, optionGroup{name: name})
 	return &p.optGroups[len(p.optGroups)-1]
@@ -614,9 +594,11 @@ func addTypeSetter(parser interface{}) {
 		}
 		out := parserValue.Call(in)
 		setValue.Set(out[0])
-		errInt := out[1].Interface()
-		if errInt != nil {
-			err = errInt.(error)
+		if len(out) > 1 {
+			errInt := out[1].Interface()
+			if errInt != nil {
+				err = errInt.(error)
+			}
 		}
 		arity = parserType.NumIn()
 		return
@@ -638,6 +620,9 @@ func init() {
 	})
 	addTypeSetter(func(s string) (time.Duration, error) {
 		return time.ParseDuration(s)
+	})
+	addTypeSetter(func(s string) net.IP {
+		return net.ParseIP(s)
 	})
 }
 
