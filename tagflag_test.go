@@ -11,8 +11,9 @@ import (
 
 func TestBasic(t *testing.T) {
 	type simpleCmd struct {
-		Verbose bool   `type:"flag" short:"v"`
-		Arg     string `type:"pos"`
+		Verbose bool `name:"v"`
+		StartPos
+		Arg string `type:"pos"`
 	}
 	for _, _case := range []struct {
 		expected simpleCmd
@@ -20,12 +21,12 @@ func TestBasic(t *testing.T) {
 		args     []string
 	}{
 		{
-			simpleCmd{true, "test"},
+			simpleCmd{Verbose: true, Arg: "test"},
 			nil,
-			[]string{"--verbose", "test"},
+			[]string{"-v", "test"},
 		},
 		{
-			simpleCmd{false, "hello"},
+			simpleCmd{Verbose: false, Arg: "hello"},
 			nil,
 			[]string{"hello"},
 		},
@@ -41,7 +42,7 @@ func TestBasic(t *testing.T) {
 		},
 		{
 			simpleCmd{},
-			userError{`unexpected flag: "-n"`},
+			userError{`unexpected flag: "-no"`},
 			[]string{"-no"},
 		},
 	} {
@@ -60,8 +61,9 @@ func TestNotBasic(t *testing.T) {
 		Seed       bool
 		NoUpload   bool
 		ListenAddr string
-		DataDir    string   `short:"d"`
-		Torrent    []string `type:"pos" arity:"+"`
+		DataDir    string `name:"d"`
+		StartPos
+		Torrent []string `type:"pos" arity:"+"`
 	}
 	for _, _case := range []struct {
 		args     []string
@@ -70,12 +72,12 @@ func TestNotBasic(t *testing.T) {
 	}{
 		{nil, userError{`missing argument: "TORRENT"`}, cmd{}},
 		{
-			[]string{"--seed"},
+			[]string{"-seed"},
 			userError{`missing argument: "TORRENT"`},
 			cmd{},
 		},
 		{
-			[]string{"a.torrent", "--seed", "b.torrent"},
+			[]string{"-seed", "a.torrent", "b.torrent"},
 			nil,
 			cmd{
 				Torrent: []string{"a.torrent", "b.torrent"},
@@ -83,7 +85,7 @@ func TestNotBasic(t *testing.T) {
 			},
 		},
 		{
-			[]string{"a.torrent", "b.torrent", "--listen-addr", "1.2.3.4:80"},
+			[]string{"-listenAddr=1.2.3.4:80", "a.torrent", "b.torrent"},
 			nil,
 			cmd{
 				ListenAddr: "1.2.3.4:80",
@@ -91,7 +93,7 @@ func TestNotBasic(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-d", "/tmp", "a.torrent", "b.torrent", "--listen-addr", "1.2.3.4:80"},
+			[]string{"-d", "/tmp", "a.torrent", "b.torrent", "-listenAddr", "1.2.3.4:80"},
 			nil,
 			cmd{
 				DataDir:    "/tmp",
@@ -100,7 +102,7 @@ func TestNotBasic(t *testing.T) {
 			},
 		},
 		{
-			[]string{"--no-upload=true", "a.torrent", "--no-upload=false"},
+			[]string{"-noUpload=true", "-noUpload=false", "a.torrent"},
 			nil,
 			cmd{
 				NoUpload: false,
@@ -128,6 +130,7 @@ func TestBadCommand(t *testing.T) {
 
 func TestVarious(t *testing.T) {
 	a := &struct {
+		StartPos
 		A string `type:"pos" arity:"+"`
 	}{}
 	t.Log(ParseEx(a, nil))
@@ -148,9 +151,10 @@ func TestUint(t *testing.T) {
 
 func TestBasicPositionalArities(t *testing.T) {
 	type cmd struct {
-		A string `type:"pos"`
-		B int64  `type:"pos" arity:"?"`
 		C bool
+		StartPos
+		A string   `type:"pos"`
+		B int64    `type:"pos" arity:"?"`
 		D []string `type:"pos" arity:"*"`
 	}
 	for _, _case := range []struct {
@@ -188,7 +192,7 @@ func TestPtrToCustom(t *testing.T) {
 	var cmd struct {
 		Addr net.TCPAddr
 	}
-	err := ParseEx(&cmd, []string{"--addr", ":443"})
+	err := ParseEx(&cmd, []string{"-addr", ":443"})
 	assert.NoError(t, err)
 	assert.EqualValues(t, ":443", cmd.Addr.String())
 }
@@ -196,4 +200,14 @@ func TestPtrToCustom(t *testing.T) {
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Lshortfile)
 	os.Exit(m.Run())
+}
+
+func TestDefaultLongFlagName(t *testing.T) {
+	assert.EqualValues(t, "noUpload", fieldLongFlagKey("NoUpload"))
+	assert.EqualValues(t, "dht", fieldLongFlagKey("DHT"))
+	assert.EqualValues(t, "noIPv6", fieldLongFlagKey("NoIPv6"))
+	assert.EqualValues(t, "tcpAddr", fieldLongFlagKey("TCPAddr"))
+	assert.EqualValues(t, "addr", fieldLongFlagKey("Addr"))
+	assert.EqualValues(t, "v", fieldLongFlagKey("V"))
+	assert.EqualValues(t, "a", fieldLongFlagKey("A"))
 }

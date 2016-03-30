@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -116,15 +117,7 @@ func (p *parser) writeOptionGroupUsage(w io.Writer, g *optionGroup) {
 	tw := newUsageTabwriter(w)
 	for _, f := range g.flags {
 		fmt.Fprint(tw, "  ")
-		if f.short != 0 {
-			fmt.Fprintf(tw, "-%c", f.short)
-		}
-		if f.short != 0 && f.long != "" {
-			fmt.Fprintf(tw, ", ")
-		}
-		if f.long != "" {
-			fmt.Fprintf(tw, "--%s", f.long)
-		}
+		fmt.Fprintf(tw, "%s%s", longFlagPrefix, f.long)
 		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), f.help)
 	}
 	tw.Flush()
@@ -159,8 +152,7 @@ func (p *parser) next() string {
 
 type flag struct {
 	arg
-	short byte
-	long  string
+	long string
 }
 
 const (
@@ -187,9 +179,23 @@ type command struct {
 	args    []pos
 }
 
-func fieldLongFlagKey(fieldName string) string {
-	ret := xstrings.ToSnakeCase(fieldName)
-	return strings.Replace(ret, "_", "-", -1)
+// Turn a struct field name into a flag name. In particular this lower cases
+// leading acronyms, and the first capital letter.
+func fieldLongFlagKey(fieldName string) (ret string) {
+	// defer func() { log.Println(fieldName, ret) }()
+	// TCP
+	if ss := regexp.MustCompile("^[[:upper:]]{2,}$").FindStringSubmatch(fieldName); ss != nil {
+		return strings.ToLower(ss[0])
+	}
+	// TCPAddr
+	if ss := regexp.MustCompile("^([[:upper:]]+)([[:upper:]][^[:upper:]].*?)$").FindStringSubmatch(fieldName); ss != nil {
+		return strings.ToLower(ss[1]) + ss[2]
+	}
+	// Addr
+	if ss := regexp.MustCompile("^([[:upper:]])(.*)$").FindStringSubmatch(fieldName); ss != nil {
+		return strings.ToLower(ss[1]) + ss[2]
+	}
+	panic(fieldName)
 }
 
 type optionGroup struct {
@@ -239,8 +245,10 @@ func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
 	cmd.args = append(cmd.args, arg)
 }
 
+const flagNameTag = "name"
+
 var relevantTags = []string{
-	"short", "long", "help",
+	"short", flagNameTag, "help",
 }
 
 func hasRelevantTags(sf reflect.StructField) bool {
@@ -285,26 +293,15 @@ func (p *parser) addFlag(g *optionGroup, v reflect.Value, sf reflect.StructField
 		return
 	}
 	f := flag{
-		long: sf.Tag.Get("long"),
+		long: sf.Tag.Get(flagNameTag),
 		arg: arg{
 			help:  sf.Tag.Get("help"),
 			value: v,
 			arity: arity(unequalsArity(v.Type())),
 		},
 	}
-	short := sf.Tag.Get("short")
-	switch len(short) {
-	case 0:
-	case 1:
-		f.short = short[0]
-	default:
-		p.raiseUserError(fmt.Sprintf("bad short tag: %q", sf.Tag))
-	}
-	if f.long == "" && len(sf.Name) > 1 {
-		f.long = strings.Replace(xstrings.ToSnakeCase(sf.Name), "_", "-", -1)
-	}
-	if f.long == "" && f.short == 0 {
-		f.short = strings.ToLower(string(sf.Name[0]))[0]
+	if f.long == "" {
+		f.long = fieldLongFlagKey(sf.Name)
 	}
 	g.flags = append(g.flags, f)
 }
@@ -333,44 +330,43 @@ func (p *parser) addCmd(cmd interface{}) {
 		p.raiseUserError(fmt.Sprintf("cmd must be ptr or nil"))
 	}
 	v = v.Elem()
+	posStarted := false
 	foreachStructField(v, func(fv reflect.Value, sf reflect.StructField) {
-		p.addAny(&p.cmd, fv, sf)
+		if fv.Type() == reflect.TypeOf(StartPos{}) {
+			posStarted = true
+			return
+		}
+		if posStarted {
+			p.addArg(&p.cmd, fv, sf)
+		} else {
+			p.addFlag(&p.cmd.options, fv, sf)
+		}
 	})
 }
 
-func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) {
-	switch sf.Tag.Get("type") {
-	case "flag":
-		p.addFlag(&cmd.options, fv, sf)
-	case "pos":
-		p.addArg(cmd, fv, sf)
-	default:
-		if fv.Kind() == reflect.Struct && unsettableType(fv.Type()) != nil {
-			name := sf.Tag.Get("name")
-			if name == "" {
-				name = sf.Name
-			}
-			p.addOptionGroup(p.newOptionGroup(name), fv)
-		} else {
-			p.addFlag(&cmd.options, fv, sf)
-			// p.raiseUserError(fmt.Sprintf("bad type in tag for %s: %q", sf.Name, sf.Tag))
-		}
-	}
-}
+// func (p *parser) addAny(cmd *command, fv reflect.Value, sf reflect.StructField) {
+// 	switch sf.Tag.Get("type") {
+// 	case "flag":
+// 		p.addFlag(&cmd.options, fv, sf)
+// 	case "pos":
+// 		p.addArg(cmd, fv, sf)
+// 	default:
+// 		if fv.Kind() == reflect.Struct && unsettableType(fv.Type()) != nil {
+// 			name := sf.Tag.Get("name")
+// 			if name == "" {
+// 				name = sf.Name
+// 			}
+// 			p.addOptionGroup(p.newOptionGroup(name), fv)
+// 		} else {
+// 			p.addFlag(&cmd.options, fv, sf)
+// 			// p.raiseUserError(fmt.Sprintf("bad type in tag for %s: %q", sf.Name, sf.Tag))
+// 		}
+// 	}
+// }
 
 func (p *parser) newOptionGroup(name string) *optionGroup {
 	p.optGroups = append(p.optGroups, optionGroup{name: name})
 	return &p.optGroups[len(p.optGroups)-1]
-}
-
-func (p *parser) getShortFlag(name byte) *flag {
-	for i := range p.cmd.options.flags {
-		f := &p.cmd.options.flags[i]
-		if f.short == name {
-			return f
-		}
-	}
-	return nil
 }
 
 func (p *parser) getLongFlag(name string) *flag {
@@ -399,8 +395,10 @@ func (p *parser) raisePrintUsage() {
 	exc.Raise(printHelp{})
 }
 
+const longFlagPrefix = "-"
+
 func (p *parser) parseLongFlag() {
-	parts := strings.SplitN(p.next()[2:], "=", 2)
+	parts := strings.SplitN(p.next()[len(longFlagPrefix):], "=", 2)
 	p.advance()
 	key := parts[0]
 	f := p.getLongFlag(key)
@@ -408,12 +406,12 @@ func (p *parser) parseLongFlag() {
 		if p.printHelp && key == "help" {
 			p.raisePrintUsage()
 		}
-		p.raiseUnexpectedFlag("--" + key)
+		p.raiseUnexpectedFlag(longFlagPrefix + key)
 	}
 	if len(parts) > 1 {
 		n, err := p.setValue(f.arg, parts[1:2], true)
 		if err != nil {
-			raiseUserError(fmt.Sprintf("error setting %s: %s", "--"+key, err))
+			raiseUserError(fmt.Sprintf("error setting %s: %s", longFlagPrefix+key, err))
 		}
 		if n != 1 {
 			panic(n)
@@ -421,43 +419,14 @@ func (p *parser) parseLongFlag() {
 	} else {
 		n, err := p.setValue(f.arg, p.args, false)
 		if err != nil {
-			raiseUserError(fmt.Sprintf("error setting %s: %s", "--"+key, err))
+			raiseUserError(fmt.Sprintf("error setting %s: %s", longFlagPrefix+key, err))
 		}
 		p.args = p.args[n:]
 	}
 }
 
-func (p *parser) parseShortFlags() {
-	next := p.next()[1:]
-	p.advance()
-	for i := range next {
-		c := next[i]
-		f := p.getShortFlag(c)
-		if f == nil {
-			if p.printHelp && c == 'h' {
-				p.raisePrintUsage()
-			}
-			p.raiseUnexpectedFlag("-" + string(c))
-		}
-		if i == len(next)-1 {
-			n, err := p.setValue(f.arg, p.args, false)
-			if err != nil {
-				raiseUserError(fmt.Sprintf("-%c: %s", c, err))
-			}
-			p.args = p.args[n:]
-			break
-		} else {
-			p.setValue(f.arg, nil, false)
-		}
-	}
-}
-
 func (p *parser) parseFlag() {
-	if len(p.next()) > 2 && strings.HasPrefix(p.next(), "--") {
-		p.parseLongFlag()
-	} else if strings.HasPrefix(p.next(), "-") {
-		p.parseShortFlags()
-	}
+	p.parseLongFlag()
 }
 
 func (p *parser) advance() {
@@ -762,3 +731,5 @@ func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) 
 	}
 	return
 }
+
+type StartPos struct{}
