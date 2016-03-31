@@ -19,7 +19,7 @@ func SkipBadTypes() parseOpt {
 // Add -h, and --help flags that print usage to stdout and exit(0).
 func HelpFlag() parseOpt {
 	return func(p *parser) {
-		p.printHelp = true
+		p.helpFlag = true
 	}
 }
 

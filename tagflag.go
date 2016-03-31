@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net"
 	"net/url"
@@ -16,8 +17,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/anacrolix/exc"
 	"github.com/anacrolix/missinggo"
+	"github.com/anacrolix/missinggo/ctrlflow"
 	"github.com/bradfitz/iter"
 	"github.com/huandu/xstrings"
 )
@@ -31,7 +32,7 @@ type parser struct {
 
 	exitOnError    bool
 	errorWriter    io.Writer
-	printHelp      bool
+	helpFlag       bool
 	skipUnsettable bool
 	description    string
 }
@@ -356,21 +357,21 @@ func (p *parser) getLongFlag(name string) *flag {
 			}
 		}
 	}
-	if p.printHelp && (name == "h" || name == "help") {
+	if p.helpFlag && (name == "h" || name == "help") {
 		p.raisePrintUsage()
 	}
 	return nil
 }
 
-func (p *parser) raiseUnexpectedFlag(flag string) {
-	p.raiseUserError(fmt.Sprintf("unexpected flag: %q", flag))
-}
-
-var PrintHelp = errors.New("help flag")
-
 func (p *parser) raisePrintUsage() {
-	exc.Raise(PrintHelp)
+	ctrlflow.Panic(PrintUsage)
 }
+
+func (p *parser) raiseUnexpectedFlag(flag string) {
+	ctrlflow.Panic(errors.New(fmt.Sprintf("unexpected flag: %q", flag)))
+}
+
+var PrintUsage = errors.New("print usage")
 
 const longFlagPrefix = "-"
 
@@ -380,7 +381,7 @@ func (p *parser) parseLongFlag() {
 	key := parts[0]
 	f := p.getLongFlag(key)
 	if f == nil {
-		if p.printHelp && key == "help" {
+		if p.helpFlag && key == "help" {
 			p.raisePrintUsage()
 		}
 		p.raiseUnexpectedFlag(longFlagPrefix + key)
@@ -428,12 +429,16 @@ func (p *parser) parseAny() {
 	}
 }
 
+func raiseError(err error) {
+	ctrlflow.Panic(err)
+}
+
 func raiseUserError(msg string) {
-	exc.Raise(userError{msg})
+	raiseError(userError{msg})
 }
 
 func raiseLogicError(msg string) {
-	exc.Raise(logicError{msg})
+	raiseError(logicError{msg})
 }
 
 func (p *parser) raiseUserError(msg string) {
@@ -645,6 +650,9 @@ func unsettableType(t reflect.Type) (ret reflect.Type) {
 	case reflect.Ptr:
 		ret = unsettableType(t.Elem())
 	case reflect.Slice:
+		if t.Name() != "" {
+			raiseUserError(fmt.Sprintf("unhandled type: %s", t.Name()))
+		}
 		ret = unsettableType(t.Elem())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -673,7 +681,7 @@ func Parse(cmd interface{}, opts ...parseOpt) {
 		Program(filepath.Base(os.Args[0])),
 	}, opts...)...)
 	err := p.parse(os.Args[1:])
-	if err == PrintHelp {
+	if err == PrintUsage {
 		p.WriteUsage(os.Stdout)
 		os.Exit(0)
 	}
@@ -697,44 +705,41 @@ func newParser(cmd interface{}, parseOpts ...parseOpt) (p *parser) {
 // Parse the provided command-line-style arguments, by default returning any
 // errors.
 func ParseEx(cmd interface{}, args []string, parseOpts ...parseOpt) (err error) {
+	defer ctrlflow.Recover(func(val interface{}) bool {
+		err = val.(error)
+		return true
+	})
 	p := newParser(cmd, parseOpts...)
 	return p.parse(args)
 }
 
+func errorExitCode(err error) int {
+	switch err.(type) {
+	case userError:
+		return 2
+	default:
+		return 1
+	}
+}
+
 func (p *parser) parse(args []string) (err error) {
 	p.args = args
-	exc.TryCatch(func() {
-		for len(p.args) != 0 {
-			p.parseAny()
+	defer ctrlflow.Recover(func(val interface{}) bool {
+		if val == PrintUsage {
+			err = val.(error)
+			return true
 		}
-		// TODO: I don't think this is working, add tests.
-		p.assertRequiredArgs()
-	}, func(e *exc.Exception) {
-		if e.Value == PrintHelp {
-			err = e.Value.(error)
-			return
+		if p.exitOnError {
+			log.Printf("tagflag: %s", val)
+			os.Exit(errorExitCode(val.(error)))
 		}
-		switch v := e.Value.(type) {
-		case userError, logicError:
-			err = v.(error)
-		default:
-			e.Raise()
-		}
+		return false
 	})
-	if err == PrintHelp {
-		return
+	for len(p.args) != 0 {
+		p.parseAny()
 	}
-	if err != nil && p.exitOnError {
-		fmt.Fprintf(p.errorWriter, "tagflag: %s\n", err)
-		code := func() int {
-			if _, ok := err.(userError); ok {
-				return 2
-			} else {
-				return 1
-			}
-		}()
-		os.Exit(code)
-	}
+	// TODO: I don't think this is working, add tests.
+	p.assertRequiredArgs()
 	return
 }
 

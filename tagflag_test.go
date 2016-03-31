@@ -1,6 +1,7 @@
 package tagflag
 
 import (
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -42,7 +43,7 @@ func TestBasic(t *testing.T) {
 		},
 		{
 			simpleCmd{},
-			userError{`unexpected flag: "-no"`},
+			errors.New(`unexpected flag: "-no"`),
 			[]string{"-no"},
 		},
 	} {
@@ -121,7 +122,7 @@ func TestNotBasic(t *testing.T) {
 }
 
 func TestBadCommand(t *testing.T) {
-	assert.Panics(t, func() { ParseEx(struct{}{}, nil) })
+	assert.Error(t, ParseEx(struct{}{}, nil))
 	assert.NoError(t, ParseEx(new(struct{}), nil))
 	assert.NoError(t, ParseEx(nil, nil))
 }
@@ -210,9 +211,27 @@ func TestDefaultLongFlagName(t *testing.T) {
 	assert.EqualValues(t, "a", fieldLongFlagKey("A"))
 }
 
-func TestPrintHelp(t *testing.T) {
+func TestPrintUsage(t *testing.T) {
 	err := ParseEx(nil, []string{"-h"}, HelpFlag())
-	assert.Equal(t, PrintHelp, err)
+	assert.Equal(t, PrintUsage, err)
 	err = ParseEx(nil, []string{"-help"}, HelpFlag())
-	assert.Equal(t, PrintHelp, err)
+	assert.Equal(t, PrintUsage, err)
+}
+
+func TestParseUnnamedTypes(t *testing.T) {
+	var cmd1 struct {
+		A []byte
+		B bool
+	}
+	assert.NoError(t, ParseEx(&cmd1, nil))
+	type B []byte
+	var cmd2 struct {
+		A B
+	}
+	ParseEx(&cmd2, nil)
+	type C bool
+	var cmd3 struct {
+		A C
+	}
+	ParseEx(&cmd3, nil)
 }
