@@ -224,10 +224,11 @@ func (p *parser) addArg(cmd *command, v reflect.Value, sf reflect.StructField) {
 	}
 	arity := sf.Tag.Get("arity")
 	if arity == "" {
-		arity = "1"
-	}
-	if len(arity) != 1 {
-		p.raiseUserError(fmt.Sprintf("bad arity in tag: %q", sf.Tag))
+		if v.Kind() == reflect.Slice {
+			arity = "*"
+		} else {
+			arity = "1"
+		}
 	}
 	var err error
 	arg.arity, err = parseArityString(arity)

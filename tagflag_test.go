@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBasic(t *testing.T) {
@@ -64,7 +65,7 @@ func TestNotBasic(t *testing.T) {
 		ListenAddr string
 		DataDir    string `name:"d"`
 		StartPos
-		Torrent []string `type:"pos" arity:"+"`
+		Torrent []string `arity:"+"`
 	}
 	for _, _case := range []struct {
 		args     []string
@@ -234,4 +235,13 @@ func TestParseUnnamedTypes(t *testing.T) {
 		A C
 	}
 	ParseEx(&cmd3, nil)
+}
+
+func TestPosArgSlice(t *testing.T) {
+	var cmd1 struct {
+		StartPos
+		Args []string
+	}
+	require.NoError(t, ParseEx(&cmd1, []string{"a", "b", "c"}))
+	assert.EqualValues(t, []string{"a", "b", "c"}, cmd1.Args)
 }
