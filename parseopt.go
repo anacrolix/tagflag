@@ -7,3 +7,9 @@ func NoDefaultHelp() parseOpt {
 		p.noDefaultHelp = true
 	}
 }
+
+func Description(desc string) parseOpt {
+	return func(p *parser) {
+		p.description = desc
+	}
+}
