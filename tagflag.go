@@ -23,7 +23,7 @@ func ParseErr(cmd interface{}, args []string, opts ...parseOpt) (err error) {
 }
 
 func Parse(cmd interface{}, opts ...parseOpt) {
-	p, err := newParser(cmd)
+	p, err := newParser(cmd, opts...)
 	if err == nil {
 		err = p.parse(os.Args[1:])
 	}
