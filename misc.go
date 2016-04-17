@@ -1,0 +1,3 @@
+package tagflag
+
+const flagPrefix = "-"

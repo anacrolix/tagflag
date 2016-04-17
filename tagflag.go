@@ -11,7 +11,8 @@ import (
 // Struct fields after this one are considered positional arguments.
 type StartPos struct{}
 
-var GotBuiltinHelpFlag = errors.New("help flag")
+// Default help flag was provided, and should be handled.
+var ErrDefaultHelp = errors.New("help flag")
 
 func ParseErr(cmd interface{}, args []string, opts ...parseOpt) (err error) {
 	p, err := newParser(cmd, opts...)
@@ -22,9 +23,12 @@ func ParseErr(cmd interface{}, args []string, opts ...parseOpt) (err error) {
 }
 
 func Parse(cmd interface{}, opts ...parseOpt) {
-	err := ParseErr(cmd, os.Args, BuiltinHelp())
-	if err == GotBuiltinHelpFlag {
-		PrintUsage(cmd, os.Stderr)
+	p, err := newParser(cmd)
+	if err == nil {
+		err = p.parse(os.Args[1:])
+	}
+	if err == ErrDefaultHelp {
+		p.printUsage(os.Stderr)
 		os.Exit(0)
 	}
 	if err != nil {
@@ -35,6 +39,8 @@ func Parse(cmd interface{}, opts ...parseOpt) {
 		os.Exit(1)
 	}
 }
+
+const infArity = 1000
 
 // Turn a struct field name into a flag name. In particular this lower cases
 // leading acronyms, and the first capital letter.

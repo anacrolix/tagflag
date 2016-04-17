@@ -212,10 +212,10 @@ func TestDefaultLongFlagName(t *testing.T) {
 }
 
 func TestPrintUsage(t *testing.T) {
-	err := ParseErr(nil, []string{"-h"}, BuiltinHelp())
-	assert.Equal(t, GotBuiltinHelpFlag, err)
-	err = ParseErr(nil, []string{"-help"}, BuiltinHelp())
-	assert.Equal(t, GotBuiltinHelpFlag, err)
+	err := ParseErr(nil, []string{"-h"})
+	assert.Equal(t, ErrDefaultHelp, err)
+	err = ParseErr(nil, []string{"-help"})
+	assert.Equal(t, ErrDefaultHelp, err)
 }
 
 func TestParseUnnamedTypes(t *testing.T) {

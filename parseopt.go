@@ -2,8 +2,8 @@ package tagflag
 
 type parseOpt func(p *parser)
 
-func BuiltinHelp() parseOpt {
+func NoDefaultHelp() parseOpt {
 	return func(p *parser) {
-		p.builtinHelp = true
+		p.noDefaultHelp = true
 	}
 }

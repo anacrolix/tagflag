@@ -11,8 +11,10 @@ import (
 )
 
 type parser struct {
-	cmd         interface{}
-	builtinHelp bool
+	cmd           interface{}
+	noDefaultHelp bool
+	program       string
+	description   string
 
 	posArgs []arg
 	flags   map[string]arg
@@ -28,6 +30,12 @@ type arg struct {
 	marshal func(string) error
 	arity   arity
 	name    string
+	help    string
+	_type   reflect.Type
+}
+
+func (p *parser) hasOptions() bool {
+	return len(p.flags) != 0
 }
 
 func (p *parser) parse(args []string) (err error) {
@@ -95,7 +103,7 @@ func fieldArity(v reflect.Value, sf reflect.StructField) (arity arity) {
 	arity.min = 1
 	arity.max = 1
 	if v.Kind() == reflect.Slice {
-		arity.max = 1000
+		arity.max = infArity
 	}
 	if sf.Tag.Get("arity") != "" {
 		switch sf.Tag.Get("arity") {
@@ -103,9 +111,9 @@ func fieldArity(v reflect.Value, sf reflect.StructField) (arity arity) {
 			arity.min = 0
 		case "*":
 			arity.min = 0
-			arity.max = 1000
+			arity.max = infArity
 		case "+":
-			arity.max = 1000
+			arity.max = infArity
 		default:
 			panic(fmt.Sprintf("unhandled arity tag: %q", sf.Tag.Get("arity")))
 		}
@@ -115,9 +123,10 @@ func fieldArity(v reflect.Value, sf reflect.StructField) (arity arity) {
 
 func (p *parser) addPos(f reflect.Value, sf reflect.StructField) error {
 	p.posArgs = append(p.posArgs, arg{
-		marshal: func(s string) error { return setValue(f, s) },
+		marshal: valueMarshaler(f),
 		arity:   fieldArity(f, sf),
 		name:    strings.ToUpper(xstrings.ToSnakeCase(sf.Name)),
+		_type:   f.Type(),
 	})
 	return nil
 }
@@ -131,8 +140,10 @@ func (p *parser) addFlag(f reflect.Value, sf reflect.StructField) error {
 		p.flags = make(map[string]arg)
 	}
 	p.flags[name] = arg{
-		marshal: func(s string) error { return setValue(f, s) },
+		marshal: valueMarshaler(f),
 		arity:   fieldArity(f, sf),
+		_type:   f.Type(),
+		name:    name,
 	}
 	return nil
 }
@@ -177,8 +188,8 @@ func (p *parser) parseFlag(s string) error {
 	}
 	flag, ok := p.flags[k]
 	if !ok {
-		if (k == "help" || k == "h") && p.builtinHelp {
-			return GotBuiltinHelpFlag
+		if (k == "help" || k == "h") && !p.noDefaultHelp {
+			return ErrDefaultHelp
 		}
 		return userError{fmt.Sprintf("unknown flag: %q", k)}
 	}
@@ -238,39 +249,40 @@ func flagValue(value reflect.Value, flag string) (ret reflect.Value) {
 	return
 }
 
-func setValue(v reflect.Value, s string) error {
-	log.Println("setValue", v.Type(), s)
+func valueMarshaler(v reflect.Value) func(s string) error {
 	if am, ok := v.Addr().Interface().(Arg); ok {
-		return am.Marshal(s)
+		return am.Marshal
 	}
 	if f, ok := typeMarshalFuncs[v.Type()]; ok {
-		return f(v, s)
+		return func(s string) error { return f(v, s) }
 	}
 	// if f, ok := typeMarshalFuncs[reflect.PtrTo(v.Type())]; ok {
 	// 	return f(v.Addr(), s)
 	// }
-	if v.Kind() == reflect.Bool && s == "" {
-		v.SetBool(true)
-		return nil
-	}
-	if v.Kind() == reflect.Slice {
-		n := reflect.New(v.Type().Elem())
-		err := setValue(n.Elem(), s)
-		if err != nil {
-			return err
+	return func(s string) error {
+		if v.Kind() == reflect.Bool && s == "" {
+			v.SetBool(true)
+			return nil
 		}
-		log.Println("appending")
-		v.Set(reflect.Append(v, n.Elem()))
+		if v.Kind() == reflect.Slice {
+			n := reflect.New(v.Type().Elem())
+			err := valueMarshaler(n.Elem())(s)
+			if err != nil {
+				return err
+			}
+			log.Println("appending")
+			v.Set(reflect.Append(v, n.Elem()))
+			return nil
+		}
+		n, err := fmt.Sscan(s, v.Addr().Interface())
+		if err != nil {
+			return fmt.Errorf("error parsing %q: %s", s, err)
+		}
+		if n != 1 {
+			panic(n)
+		}
 		return nil
 	}
-	n, err := fmt.Sscan(s, v.Addr().Interface())
-	if err != nil {
-		return fmt.Errorf("error parsing %q: %s", s, err)
-	}
-	if n != 1 {
-		panic(n)
-	}
-	return nil
 }
 
 // Gets the reflect.Value for the nth positional argument.
@@ -320,4 +332,13 @@ func foreachStructField(_struct reflect.Value, f func(fv reflect.Value, sf refle
 			break
 		}
 	}
+}
+
+func (p *parser) posWithHelp() (ret []arg) {
+	for _, a := range p.posArgs {
+		if a.help != "" {
+			ret = append(ret, a)
+		}
+	}
+	return
 }
