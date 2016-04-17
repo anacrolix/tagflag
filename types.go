@@ -1,23 +1,65 @@
 package tagflag
 
 import (
+	"net"
+	"net/url"
+	"reflect"
+	"time"
+
 	"github.com/dustin/go-humanize"
 )
 
+type Arg interface {
+	Marshal(in string) error
+}
+
 type Bytes int64
 
-var _ ArgsMarshaler = new(Bytes)
+var _ Arg = new(Bytes)
 
-func (me *Bytes) MarshalArgs(in []string) (consumed int, err error) {
-	ui64, err := humanize.ParseBytes(in[0])
+func (me *Bytes) Marshal(s string) (err error) {
+	ui64, err := humanize.ParseBytes(s)
 	if err != nil {
 		return
 	}
 	*me = Bytes(ui64)
-	consumed = 1
 	return
 }
 
 func (me Bytes) Int64() int64 {
 	return int64(me)
+}
+
+var typeMarshalFuncs = map[reflect.Type]func(settee reflect.Value, arg string) error{}
+
+func addMarshalFunc(f interface{}) {
+	v := reflect.ValueOf(f)
+	t := v.Type()
+	setType := t.Out(0)
+	typeMarshalFuncs[setType] = func(settee reflect.Value, arg string) error {
+		out := v.Call([]reflect.Value{reflect.ValueOf(arg)})
+		settee.Set(out[0])
+		if len(out) > 1 {
+			i := out[1].Interface()
+			if i != nil {
+				return i.(error)
+			}
+		}
+		return nil
+	}
+}
+
+func init() {
+	addMarshalFunc(func(urlStr string) (*url.URL, error) {
+		return url.Parse(urlStr)
+	})
+	addMarshalFunc(func(s string) (*net.TCPAddr, error) {
+		return net.ResolveTCPAddr("tcp", s)
+	})
+	addMarshalFunc(func(s string) (time.Duration, error) {
+		return time.ParseDuration(s)
+	})
+	addMarshalFunc(func(s string) net.IP {
+		return net.ParseIP(s)
+	})
 }

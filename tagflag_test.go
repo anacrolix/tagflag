@@ -1,7 +1,6 @@
 package tagflag
 
 import (
-	"errors"
 	"log"
 	"net"
 	"os"
@@ -15,7 +14,7 @@ func TestBasic(t *testing.T) {
 	type simpleCmd struct {
 		Verbose bool `name:"v"`
 		StartPos
-		Arg string `type:"pos"`
+		Arg string
 	}
 	for _, _case := range []struct {
 		expected simpleCmd
@@ -44,14 +43,15 @@ func TestBasic(t *testing.T) {
 		},
 		{
 			simpleCmd{},
-			errors.New(`unexpected flag: "-no"`),
+			userError{`unknown flag: "no"`},
 			[]string{"-no"},
 		},
 	} {
 		var actual simpleCmd
-		err := ParseEx(&actual, _case.args)
+		err := ParseErr(&actual, _case.args)
 		assert.EqualValues(t, _case.err, err)
-		if _case.err != nil {
+		if _case.err != nil || _case.err != err {
+			// The value we got doesn't matter.
 			continue
 		}
 		assert.EqualValues(t, _case.expected, actual)
@@ -95,7 +95,7 @@ func TestNotBasic(t *testing.T) {
 			},
 		},
 		{
-			[]string{"-d", "/tmp", "a.torrent", "b.torrent", "-listenAddr", "1.2.3.4:80"},
+			[]string{"-d=/tmp", "a.torrent", "b.torrent", "-listenAddr=1.2.3.4:80"},
 			nil,
 			cmd{
 				DataDir:    "/tmp",
@@ -113,7 +113,7 @@ func TestNotBasic(t *testing.T) {
 		},
 	} {
 		var actual cmd
-		err := ParseEx(&actual, _case.args)
+		err := ParseErr(&actual, _case.args)
 		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
 			continue
@@ -123,46 +123,45 @@ func TestNotBasic(t *testing.T) {
 }
 
 func TestBadCommand(t *testing.T) {
-	assert.Error(t, ParseEx(struct{}{}, nil))
-	assert.NoError(t, ParseEx(new(struct{}), nil))
-	assert.NoError(t, ParseEx(nil, nil))
+	// assert.Error(t, ParseErr(struct{}{}, nil))
+	assert.NoError(t, ParseErr(new(struct{}), nil))
+	assert.NoError(t, ParseErr(nil, nil))
 }
 
 func TestVarious(t *testing.T) {
 	a := &struct {
 		StartPos
-		A string `type:"pos" arity:"+"`
+		A string `arity:"?"`
 	}{}
-	t.Log(ParseEx(a, nil))
-	t.Log(ParseEx(a, []string{"a"}))
+	assert.NoError(t, ParseErr(a, nil))
+	assert.NoError(t, ParseErr(a, []string{"a"}))
 	assert.EqualValues(t, "a", a.A)
-	t.Log(ParseEx(a, []string{"a", "b"}))
-	assert.EqualValues(t, "b", a.A)
+	assert.EqualError(t, ParseErr(a, []string{"a", "b"}), `excess argument: "b"`)
 }
 
 func TestUint(t *testing.T) {
 	var a struct {
 		A uint
 	}
-	assert.Error(t, ParseEx(&a, []string{"-a"}))
-	assert.Error(t, ParseEx(&a, []string{"-a", "-1"}))
-	assert.NoError(t, ParseEx(&a, []string{"-a", "42"}))
+	assert.Error(t, ParseErr(&a, []string{"-a"}))
+	assert.Error(t, ParseErr(&a, []string{"-a", "-1"}))
+	assert.NoError(t, ParseErr(&a, []string{"-a=42"}))
 }
 
 func TestBasicPositionalArities(t *testing.T) {
 	type cmd struct {
 		C bool
 		StartPos
-		A string   `type:"pos"`
-		B int64    `type:"pos" arity:"?"`
-		D []string `type:"pos" arity:"*"`
+		A string
+		B int64    `arity:"?"`
+		D []string `arity:"*"`
 	}
 	for _, _case := range []struct {
 		args     []string
 		err      error
 		expected cmd
 	}{
-		{nil, userError{`missing argument: "A"`}, cmd{}},
+		// {nil, userError{`missing argument: "A"`}, cmd{}},
 		{[]string{"abc"}, nil, cmd{A: "abc"}},
 		{[]string{"abc", "123"}, nil, cmd{A: "abc", B: 123}},
 		{[]string{"abc", "123", "first"}, nil, cmd{A: "abc", B: 123, D: []string{"first"}}},
@@ -170,7 +169,7 @@ func TestBasicPositionalArities(t *testing.T) {
 		{[]string{"abc", "123", "-c", "first", "second"}, nil, cmd{A: "abc", B: 123, C: true, D: []string{"first", "second"}}},
 	} {
 		var actual cmd
-		err := ParseEx(&actual, _case.args)
+		err := ParseErr(&actual, _case.args)
 		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
 			continue
@@ -183,16 +182,16 @@ func TestBytes(t *testing.T) {
 	var cmd struct {
 		B Bytes
 	}
-	err := ParseEx(&cmd, []string{"-b", "100g"})
+	err := ParseErr(&cmd, []string{"-b=100g"})
 	assert.NoError(t, err)
 	assert.EqualValues(t, 100e9, cmd.B)
 }
 
 func TestPtrToCustom(t *testing.T) {
 	var cmd struct {
-		Addr net.TCPAddr
+		Addr *net.TCPAddr
 	}
-	err := ParseEx(&cmd, []string{"-addr", ":443"})
+	err := ParseErr(&cmd, []string{"-addr=:443"})
 	assert.NoError(t, err)
 	assert.EqualValues(t, ":443", cmd.Addr.String())
 }
@@ -213,10 +212,10 @@ func TestDefaultLongFlagName(t *testing.T) {
 }
 
 func TestPrintUsage(t *testing.T) {
-	err := ParseEx(nil, []string{"-h"}, HelpFlag())
-	assert.Equal(t, PrintUsage, err)
-	err = ParseEx(nil, []string{"-help"}, HelpFlag())
-	assert.Equal(t, PrintUsage, err)
+	err := ParseErr(nil, []string{"-h"}, BuiltinHelp())
+	assert.Equal(t, GotBuiltinHelpFlag, err)
+	err = ParseErr(nil, []string{"-help"}, BuiltinHelp())
+	assert.Equal(t, GotBuiltinHelpFlag, err)
 }
 
 func TestParseUnnamedTypes(t *testing.T) {
@@ -224,17 +223,17 @@ func TestParseUnnamedTypes(t *testing.T) {
 		A []byte
 		B bool
 	}
-	assert.NoError(t, ParseEx(&cmd1, nil))
+	assert.NoError(t, ParseErr(&cmd1, nil))
 	type B []byte
 	var cmd2 struct {
 		A B
 	}
-	ParseEx(&cmd2, nil)
+	ParseErr(&cmd2, nil)
 	type C bool
 	var cmd3 struct {
 		A C
 	}
-	ParseEx(&cmd3, nil)
+	ParseErr(&cmd3, nil)
 }
 
 func TestPosArgSlice(t *testing.T) {
@@ -242,6 +241,6 @@ func TestPosArgSlice(t *testing.T) {
 		StartPos
 		Args []string
 	}
-	require.NoError(t, ParseEx(&cmd1, []string{"a", "b", "c"}))
+	require.NoError(t, ParseErr(&cmd1, []string{"a", "b", "c"}))
 	assert.EqualValues(t, []string{"a", "b", "c"}, cmd1.Args)
 }
