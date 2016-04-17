@@ -244,3 +244,18 @@ func TestPosArgSlice(t *testing.T) {
 	require.NoError(t, ParseErr(&cmd1, []string{"a", "b", "c"}))
 	assert.EqualValues(t, []string{"a", "b", "c"}, cmd1.Args)
 }
+
+func TestUnmarshallableTypes(t *testing.T) {
+	var cmd1 struct {
+		Wtf *int
+	}
+	assert.Contains(t, ParseErr(&cmd1, []string{"-wtf=yo"}).Error(), "*int")
+}
+
+func TestTCPAddrNoExplicitValue(t *testing.T) {
+	var cmd struct {
+		Addr *net.TCPAddr
+	}
+	assert.Error(t, ParseErr(&cmd, []string{"-addr"}))
+	assert.NoError(t, ParseErr(&cmd, []string{"-addr="}))
+}

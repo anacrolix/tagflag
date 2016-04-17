@@ -27,7 +27,7 @@ type arity struct {
 }
 
 type arg struct {
-	marshal func(string) error
+	marshal func(argValue string, explicitValue bool) error
 	arity   arity
 	name    string
 	help    string
@@ -82,19 +82,35 @@ func (p *parser) parseCmd() error {
 	return p.parseStruct(reflect.ValueOf(p.cmd).Elem())
 }
 
+func canMarshal(f reflect.Value) bool {
+	return valueMarshaler(f) != nil
+}
+
+// Positional arguments are marked per struct.
 func (p *parser) parseStruct(st reflect.Value) (err error) {
 	posStarted := false
 	foreachStructField(st, func(f reflect.Value, sf reflect.StructField) (stop bool) {
-		if posStarted {
-			err = p.addPos(f, sf)
-			return err != nil
-		}
-		if f.Type() == reflect.TypeOf(StartPos{}) {
+		if !posStarted && f.Type() == reflect.TypeOf(StartPos{}) {
 			posStarted = true
 			return false
 		}
-		err = p.addFlag(f, sf)
-		return err != nil
+		if canMarshal(f) {
+			if posStarted {
+				err = p.addPos(f, sf)
+			} else {
+				err = p.addFlag(f, sf)
+				if err != nil {
+					err = fmt.Errorf("error adding flag in %s: %s", st.Type(), err)
+				}
+			}
+			return err != nil
+		}
+		if f.Kind() == reflect.Struct {
+			err = p.parseStruct(f)
+			return err != nil
+		}
+		err = fmt.Errorf("field has bad type: %v", f.Type())
+		return true
 	})
 	return
 }
@@ -121,30 +137,30 @@ func fieldArity(v reflect.Value, sf reflect.StructField) (arity arity) {
 	return
 }
 
+func newArg(v reflect.Value, sf reflect.StructField, name string) arg {
+	return arg{
+		marshal: valueMarshaler(v),
+		arity:   fieldArity(v, sf),
+		_type:   v.Type(),
+		name:    name,
+		help:    sf.Tag.Get("help"),
+	}
+}
+
 func (p *parser) addPos(f reflect.Value, sf reflect.StructField) error {
-	p.posArgs = append(p.posArgs, arg{
-		marshal: valueMarshaler(f),
-		arity:   fieldArity(f, sf),
-		name:    strings.ToUpper(xstrings.ToSnakeCase(sf.Name)),
-		_type:   f.Type(),
-	})
+	p.posArgs = append(p.posArgs, newArg(f, sf, strings.ToUpper(xstrings.ToSnakeCase(sf.Name))))
 	return nil
 }
 
 func (p *parser) addFlag(f reflect.Value, sf reflect.StructField) error {
 	name := structFieldFlag(sf)
 	if _, ok := p.flags[name]; ok {
-		return fmt.Errorf("flag defined more than once: %q", name)
+		return fmt.Errorf("flag %q defined more than once", name)
 	}
 	if p.flags == nil {
 		p.flags = make(map[string]arg)
 	}
-	p.flags[name] = arg{
-		marshal: valueMarshaler(f),
-		arity:   fieldArity(f, sf),
-		_type:   f.Type(),
-		name:    name,
-	}
+	p.flags[name] = newArg(f, sf, name)
 	return nil
 }
 
@@ -193,7 +209,7 @@ func (p *parser) parseFlag(s string) error {
 		}
 		return userError{fmt.Sprintf("unknown flag: %q", k)}
 	}
-	err := flag.marshal(v)
+	err := flag.marshal(v, i != -1)
 	if err != nil {
 		return fmt.Errorf("error setting flag %q: %s", k, err)
 	}
@@ -215,7 +231,7 @@ func (p *parser) parsePos(s string) (err error) {
 	if arg == nil {
 		return userError{fmt.Sprintf("excess argument: %q", s)}
 	}
-	err = arg.marshal(s)
+	err = arg.marshal(s, true)
 	if err != nil {
 		return
 	}
@@ -249,28 +265,31 @@ func flagValue(value reflect.Value, flag string) (ret reflect.Value) {
 	return
 }
 
-func valueMarshaler(v reflect.Value) func(s string) error {
+func valueMarshaler(v reflect.Value) func(s string, explicitValue bool) error {
 	if am, ok := v.Addr().Interface().(Arg); ok {
 		return am.Marshal
 	}
 	if f, ok := typeMarshalFuncs[v.Type()]; ok {
-		return func(s string) error { return f(v, s) }
+		return func(s string, ev bool) error { return f(v, s, ev) }
 	}
 	// if f, ok := typeMarshalFuncs[reflect.PtrTo(v.Type())]; ok {
 	// 	return f(v.Addr(), s)
 	// }
-	return func(s string) error {
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Struct:
+		return nil
+	}
+	return func(s string, ev bool) error {
 		if v.Kind() == reflect.Bool && s == "" {
 			v.SetBool(true)
 			return nil
 		}
 		if v.Kind() == reflect.Slice {
 			n := reflect.New(v.Type().Elem())
-			err := valueMarshaler(n.Elem())(s)
+			err := valueMarshaler(n.Elem())(s, ev)
 			if err != nil {
 				return err
 			}
-			log.Println("appending")
 			v.Set(reflect.Append(v, n.Elem()))
 			return nil
 		}
