@@ -6,32 +6,24 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/bradfitz/iter"
 	"github.com/huandu/xstrings"
 )
 
 type parser struct {
-	cmd           interface{}
+	// The value from which the parser is built, and values are assigned.
+	cmd interface{}
+	// Disables the default handling of -h and -help.
 	noDefaultHelp bool
 	program       string
 	description   string
 
 	posArgs []arg
-	flags   map[string]arg
+	// Maps -K=V to map[K]arg(V)
+	flags map[string]arg
 
+	// Count of positional arguments parsed so far. Used to locate the next
+	// positional argument where it's non-trivial (non-unity arity).
 	numPos int
-}
-
-type arity struct {
-	min, max int
-}
-
-type arg struct {
-	marshal func(argValue string, explicitValue bool) error
-	arity   arity
-	name    string
-	help    string
-	_type   reflect.Type
 }
 
 func (p *parser) hasOptions() bool {
@@ -82,10 +74,6 @@ func (p *parser) parseCmd() error {
 	return p.parseStruct(reflect.ValueOf(p.cmd).Elem())
 }
 
-func canMarshal(f reflect.Value) bool {
-	return valueMarshaler(f) != nil
-}
-
 // Positional arguments are marked per struct.
 func (p *parser) parseStruct(st reflect.Value) (err error) {
 	posStarted := false
@@ -106,6 +94,10 @@ func (p *parser) parseStruct(st reflect.Value) (err error) {
 			return err != nil
 		}
 		if f.Kind() == reflect.Struct {
+			if canMarshal(f.Addr()) {
+				err = fmt.Errorf("field %q has type %s, did you mean to use %s?", sf.Name, f.Type(), f.Addr().Type())
+				return true
+			}
 			err = p.parseStruct(f)
 			return err != nil
 		}
@@ -115,35 +107,12 @@ func (p *parser) parseStruct(st reflect.Value) (err error) {
 	return
 }
 
-func fieldArity(v reflect.Value, sf reflect.StructField) (arity arity) {
-	arity.min = 1
-	arity.max = 1
-	if v.Kind() == reflect.Slice {
-		arity.max = infArity
-	}
-	if sf.Tag.Get("arity") != "" {
-		switch sf.Tag.Get("arity") {
-		case "?":
-			arity.min = 0
-		case "*":
-			arity.min = 0
-			arity.max = infArity
-		case "+":
-			arity.max = infArity
-		default:
-			panic(fmt.Sprintf("unhandled arity tag: %q", sf.Tag.Get("arity")))
-		}
-	}
-	return
-}
-
 func newArg(v reflect.Value, sf reflect.StructField, name string) arg {
 	return arg{
-		marshal: valueMarshaler(v),
-		arity:   fieldArity(v, sf),
-		_type:   v.Type(),
-		name:    name,
-		help:    sf.Tag.Get("help"),
+		arity: fieldArity(v, sf),
+		value: v,
+		name:  name,
+		help:  sf.Tag.Get("help"),
 	}
 }
 
@@ -244,64 +213,7 @@ func structFieldFlag(sf reflect.StructField) string {
 	if name != "" {
 		return name
 	}
-	return fieldLongFlagKey(sf.Name)
-}
-
-func flagValue(value reflect.Value, flag string) (ret reflect.Value) {
-	if value.Kind() != reflect.Struct {
-		return
-	}
-	foreachStructField(value, func(fv reflect.Value, sf reflect.StructField) (more bool) {
-		if structFieldFlag(sf) == flag {
-			ret = fv
-			return false
-		}
-		ret = flagValue(fv, flag)
-		if ret.IsValid() {
-			return false
-		}
-		return true
-	})
-	return
-}
-
-func valueMarshaler(v reflect.Value) func(s string, explicitValue bool) error {
-	if am, ok := v.Addr().Interface().(Arg); ok {
-		return am.Marshal
-	}
-	if f, ok := typeMarshalFuncs[v.Type()]; ok {
-		return func(s string, ev bool) error { return f(v, s, ev) }
-	}
-	// if f, ok := typeMarshalFuncs[reflect.PtrTo(v.Type())]; ok {
-	// 	return f(v.Addr(), s)
-	// }
-	switch v.Kind() {
-	case reflect.Ptr, reflect.Struct:
-		return nil
-	}
-	return func(s string, ev bool) error {
-		if v.Kind() == reflect.Bool && s == "" {
-			v.SetBool(true)
-			return nil
-		}
-		if v.Kind() == reflect.Slice {
-			n := reflect.New(v.Type().Elem())
-			err := valueMarshaler(n.Elem())(s, ev)
-			if err != nil {
-				return err
-			}
-			v.Set(reflect.Append(v, n.Elem()))
-			return nil
-		}
-		n, err := fmt.Sscan(s, v.Addr().Interface())
-		if err != nil {
-			return fmt.Errorf("error parsing %q: %s", s, err)
-		}
-		if n != 1 {
-			panic(n)
-		}
-		return nil
-	}
+	return fieldFlagName(sf.Name)
 }
 
 // Gets the reflect.Value for the nth positional argument.
@@ -339,17 +251,6 @@ func posIndexValue(v reflect.Value, _i int) (ret reflect.Value, i int) {
 		}
 		i--
 		return
-	}
-}
-
-func foreachStructField(_struct reflect.Value, f func(fv reflect.Value, sf reflect.StructField) (stop bool)) {
-	t := _struct.Type()
-	for i := range iter.N(t.NumField()) {
-		sf := t.Field(i)
-		fv := _struct.Field(i)
-		if f(fv, sf) {
-			break
-		}
 	}
 }
 

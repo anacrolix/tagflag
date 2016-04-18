@@ -7,11 +7,3 @@ type userError struct {
 func (ue userError) Error() string {
 	return ue.msg
 }
-
-type logicError struct {
-	msg string
-}
-
-func (le logicError) Error() string {
-	return le.msg
-}

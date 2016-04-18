@@ -13,3 +13,9 @@ func Description(desc string) parseOpt {
 		p.description = desc
 	}
 }
+
+func Program(name string) parseOpt {
+	return func(p *parser) {
+		p.program = name
+	}
+}

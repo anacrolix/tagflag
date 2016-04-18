@@ -43,7 +43,7 @@ func (p *parser) printUsage(w io.Writer) {
 		fmt.Fprintf(w, "Arguments:\n")
 		tw := newUsageTabwriter(w)
 		for _, a := range awd {
-			fmt.Fprintf(tw, "  %s\t(%s)\t%s\n", a.name, a._type, a.help)
+			fmt.Fprintf(tw, "  %s\t(%s)\t%s\n", a.name, a.value.Type(), a.help)
 		}
 		tw.Flush()
 	}
@@ -72,7 +72,7 @@ func writeOptionUsage(w io.Writer, flags []arg) {
 	for _, f := range flags {
 		fmt.Fprint(tw, "  ")
 		fmt.Fprintf(tw, "%s%s", flagPrefix, f.name)
-		fmt.Fprintf(tw, "\t(%s)\t%s\n", f._type, f.help)
+		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), f.help)
 	}
 	tw.Flush()
 }

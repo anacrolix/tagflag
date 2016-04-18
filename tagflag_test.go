@@ -202,13 +202,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestDefaultLongFlagName(t *testing.T) {
-	assert.EqualValues(t, "noUpload", fieldLongFlagKey("NoUpload"))
-	assert.EqualValues(t, "dht", fieldLongFlagKey("DHT"))
-	assert.EqualValues(t, "noIPv6", fieldLongFlagKey("NoIPv6"))
-	assert.EqualValues(t, "tcpAddr", fieldLongFlagKey("TCPAddr"))
-	assert.EqualValues(t, "addr", fieldLongFlagKey("Addr"))
-	assert.EqualValues(t, "v", fieldLongFlagKey("V"))
-	assert.EqualValues(t, "a", fieldLongFlagKey("A"))
+	assert.EqualValues(t, "noUpload", fieldFlagName("NoUpload"))
+	assert.EqualValues(t, "dht", fieldFlagName("DHT"))
+	assert.EqualValues(t, "noIPv6", fieldFlagName("NoIPv6"))
+	assert.EqualValues(t, "tcpAddr", fieldFlagName("TCPAddr"))
+	assert.EqualValues(t, "addr", fieldFlagName("Addr"))
+	assert.EqualValues(t, "v", fieldFlagName("V"))
+	assert.EqualValues(t, "a", fieldFlagName("A"))
 }
 
 func TestPrintUsage(t *testing.T) {
