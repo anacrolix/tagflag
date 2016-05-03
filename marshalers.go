@@ -3,6 +3,7 @@ package tagflag
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 )
 
 type Marshaler interface {
@@ -43,14 +44,25 @@ func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 		v.Set(reflect.Append(v, n.Elem()))
 		return nil
 	}
-	n, err := fmt.Sscan(s, v.Addr().Interface())
-	if err != nil {
-		return fmt.Errorf("error parsing %q: %s", s, err)
+	switch v.Kind() {
+	case reflect.Int:
+		x, err := strconv.ParseInt(s, 0, 0)
+		v.SetInt(x)
+		return err
+	case reflect.Uint:
+		x, err := strconv.ParseUint(s, 0, 0)
+		v.SetUint(x)
+		return err
+	case reflect.Int64:
+		x, err := strconv.ParseInt(s, 0, 64)
+		v.SetInt(x)
+		return err
+	case reflect.String:
+		v.SetString(s)
+		return nil
+	default:
+		return fmt.Errorf("unhandled builtin type: %s", v.Type().String())
 	}
-	if n != 1 {
-		panic(n)
-	}
-	return nil
 }
 
 func (defaultMarshaler) RequiresExplicitValue() bool {

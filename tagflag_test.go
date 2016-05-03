@@ -37,6 +37,16 @@ func TestBasic(t *testing.T) {
 			[]string{"hello", "world"},
 		},
 		{
+			simpleCmd{Arg: "hello, world"},
+			nil,
+			[]string{"hello, world"},
+		},
+		{
+			simpleCmd{},
+			userError{`excess argument: "answer = 42"`},
+			[]string{"hello, world", "answer = 42"},
+		},
+		{
 			simpleCmd{},
 			userError{`missing argument: "ARG"`},
 			[]string{"-v"},
