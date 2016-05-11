@@ -269,3 +269,11 @@ func TestTCPAddrNoExplicitValue(t *testing.T) {
 	assert.Error(t, ParseErr(&cmd, []string{"-addr"}))
 	assert.NoError(t, ParseErr(&cmd, []string{"-addr="}))
 }
+
+func TestUnexportedStructField(t *testing.T) {
+	var cmd struct {
+		badField bool
+	}
+	assert.NoError(t, ParseErr(&cmd, nil))
+	assert.EqualError(t, ParseErr(&cmd, []string{"-badField"}), `unknown flag: "badField"`)
+}

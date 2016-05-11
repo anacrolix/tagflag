@@ -82,6 +82,9 @@ func (p *parser) parseStruct(st reflect.Value) (err error) {
 			posStarted = true
 			return false
 		}
+		if sf.PkgPath != "" {
+			return false
+		}
 		if canMarshal(f) {
 			if posStarted {
 				err = p.addPos(f, sf)
