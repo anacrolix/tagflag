@@ -66,5 +66,5 @@ func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 }
 
 func (defaultMarshaler) RequiresExplicitValue() bool {
-	return false
+	return true
 }
