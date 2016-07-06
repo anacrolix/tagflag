@@ -51,12 +51,10 @@ func (p *parser) printUsage(w io.Writer) {
 	for _, v := range p.flags {
 		opts = append(opts, v)
 	}
-	writeOptionUsage(w, missinggo.Sort(
-		opts,
-		func(left, right arg) bool {
-			return left.name < right.name
-		},
-	).([]arg))
+	missinggo.SortSlice(opts, func(left, right arg) bool {
+		return left.name < right.name
+	})
+	writeOptionUsage(w, opts)
 }
 
 func newUsageTabwriter(w io.Writer) *tabwriter.Writer {
