@@ -6,6 +6,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/anacrolix/missinggo"
+	"github.com/anacrolix/missinggo/slices"
 )
 
 func (p *parser) printUsage(w io.Writer) {
@@ -51,7 +52,7 @@ func (p *parser) printUsage(w io.Writer) {
 	for _, v := range p.flags {
 		opts = append(opts, v)
 	}
-	missinggo.SortSlice(opts, func(left, right arg) bool {
+	slices.Sort(opts, func(left, right arg) bool {
 		return left.name < right.name
 	})
 	writeOptionUsage(w, opts)
