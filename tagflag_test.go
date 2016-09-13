@@ -204,6 +204,14 @@ func TestPtrToCustom(t *testing.T) {
 	err := ParseErr(&cmd, []string{"-addr=:443"})
 	assert.NoError(t, err)
 	assert.EqualValues(t, ":443", cmd.Addr.String())
+	err = ParseErr(&cmd, []string{"-addr="})
+	assert.NoError(t, err)
+	assert.Nil(t, cmd.Addr)
+}
+
+func TestResolveTCPAddr(t *testing.T) {
+	addr, err := net.ResolveTCPAddr("tcp", "")
+	t.Log(addr, err)
 }
 
 func TestMain(m *testing.M) {
