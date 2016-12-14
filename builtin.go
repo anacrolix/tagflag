@@ -42,6 +42,9 @@ func init() {
 	// Empty strings for this type are valid, so we enforce that the value is
 	// explicit (=), so that the user knows what they're getting into.
 	addBuiltinDynamicMarshaler(func(s string) (*net.TCPAddr, error) {
+		if s == "" {
+			return nil, nil
+		}
 		return net.ResolveTCPAddr("tcp", s)
 	}, true)
 	addBuiltinDynamicMarshaler(func(s string) (time.Duration, error) {
