@@ -26,9 +26,13 @@ func ParseErr(cmd interface{}, args []string, opts ...parseOpt) (err error) {
 // errors or if usage is printed.
 func Parse(cmd interface{}, opts ...parseOpt) {
 	opts = append([]parseOpt{Program(filepath.Base(os.Args[0]))}, opts...)
+	ParseArgs(cmd, os.Args[1:], opts...)
+}
+
+func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 	p, err := newParser(cmd, opts...)
 	if err == nil {
-		err = p.parse(os.Args[1:])
+		err = p.parse(args)
 	}
 	if err == ErrDefaultHelp {
 		p.printUsage(os.Stderr)

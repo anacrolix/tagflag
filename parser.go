@@ -19,7 +19,8 @@ type parser struct {
 
 	posArgs []arg
 	// Maps -K=V to map[K]arg(V)
-	flags map[string]arg
+	flags  map[string]arg
+	excess *ExcessArgs
 
 	// Count of positional arguments parsed so far. Used to locate the next
 	// positional argument where it's non-trivial (non-unity arity).
@@ -31,13 +32,26 @@ func (p *parser) hasOptions() bool {
 }
 
 func (p *parser) parse(args []string) (err error) {
-	args, err = p.parseAny(args)
-	if err != nil {
-		return
-	}
-	err = p.parsePosArgs(args)
-	if err != nil {
-		return
+	posOnly := false
+	for len(args) != 0 {
+		if p.excess != nil && p.nextPosArg() == nil {
+			*p.excess = args
+			return
+		}
+		a := args[0]
+		args = args[1:]
+		if !posOnly && a == "--" {
+			posOnly = true
+			continue
+		}
+		if !posOnly && isFlag(a) {
+			err = p.parseFlag(a[1:])
+		} else {
+			err = p.parsePos(a)
+		}
+		if err != nil {
+			return
+		}
 	}
 	if p.numPos < p.minPos() {
 		return userError{fmt.Sprintf("missing argument: %q", p.indexPosArg(p.numPos).name)}
@@ -82,8 +96,16 @@ func (p *parser) parseStruct(st reflect.Value) (err error) {
 			posStarted = true
 			return false
 		}
+		if f.Type() == reflect.TypeOf(ExcessArgs{}) {
+			p.excess = f.Addr().Interface().(*ExcessArgs)
+			return false
+		}
 		if sf.PkgPath != "" {
 			return false
+		}
+		if p.excess != nil {
+			err = ErrFieldsAfterExcessArgs
+			return true
 		}
 		if canMarshal(f) {
 			if posStarted {
@@ -136,34 +158,8 @@ func (p *parser) addFlag(f reflect.Value, sf reflect.StructField) error {
 	return nil
 }
 
-func (p *parser) parseAny(args []string) (left []string, err error) {
-	for len(args) != 0 {
-		a := args[0]
-		args = args[1:]
-		if a == "--" {
-			left = args[1:]
-			return
-		}
-		if strings.HasPrefix(a, "-") && len(a) > 1 {
-			err = p.parseFlag(a[1:])
-		} else {
-			err = p.parsePos(a)
-		}
-		if err != nil {
-			break
-		}
-	}
-	return
-}
-
-func (p *parser) parsePosArgs(args []string) (err error) {
-	for _, a := range args {
-		err = p.parsePos(a)
-		if err != nil {
-			break
-		}
-	}
-	return
+func isFlag(arg string) bool {
+	return len(arg) > 1 && arg[0] == '-'
 }
 
 func (p *parser) parseFlag(s string) error {
@@ -198,8 +194,12 @@ func (p *parser) indexPosArg(i int) *arg {
 	return nil
 }
 
+func (p *parser) nextPosArg() *arg {
+	return p.indexPosArg(p.numPos)
+}
+
 func (p *parser) parsePos(s string) (err error) {
-	arg := p.indexPosArg(p.numPos)
+	arg := p.nextPosArg()
 	if arg == nil {
 		return userError{fmt.Sprintf("excess argument: %q", s)}
 	}

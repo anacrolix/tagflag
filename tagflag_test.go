@@ -285,3 +285,40 @@ func TestUnexportedStructField(t *testing.T) {
 	assert.NoError(t, ParseErr(&cmd, nil))
 	assert.EqualError(t, ParseErr(&cmd, []string{"-badField"}), `unknown flag: "badField"`)
 }
+
+func TestExcessArgsEmpty(t *testing.T) {
+	var cmd struct {
+		ExcessArgs
+	}
+	require.NoError(t, ParseErr(&cmd, nil))
+	assert.Len(t, cmd.ExcessArgs, 0)
+}
+
+func TestExcessArgs(t *testing.T) {
+	var cmd struct {
+		ExcessArgs
+	}
+	excess := []string{"yo", "-addr=hi"}
+	require.NoError(t, ParseErr(&cmd, excess))
+	assert.EqualValues(t, excess, cmd.ExcessArgs)
+}
+
+func TestExcessArgsComplex(t *testing.T) {
+	var cmd struct {
+		Verbose bool `name:"v"`
+		StartPos
+		Command string
+		ExcessArgs
+	}
+	excess := []string{"-addr=hi"}
+	require.NoError(t, ParseErr(&cmd, append([]string{"-v", "serve"}, excess...)))
+	assert.EqualValues(t, excess, cmd.ExcessArgs)
+}
+
+func TestFieldAfterExcessArgs(t *testing.T) {
+	var cmd struct {
+		ExcessArgs
+		Badness string
+	}
+	require.EqualValues(t, ErrFieldsAfterExcessArgs, ParseErr(&cmd, nil))
+}
