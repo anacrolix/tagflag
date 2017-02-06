@@ -24,3 +24,7 @@ func (Bytes) RequiresExplicitValue() bool {
 func (me Bytes) Int64() int64 {
 	return int64(me)
 }
+
+func (me Bytes) String() string {
+	return humanize.Bytes(uint64(me))
+}

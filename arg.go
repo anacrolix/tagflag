@@ -12,6 +12,12 @@ type arg struct {
 	value reflect.Value
 }
 
+func (me arg) hasZeroValue() bool {
+	return reflect.DeepEqual(
+		reflect.Zero(me.value.Type()).Interface(),
+		me.value.Interface())
+}
+
 func (me arg) marshal(s string, explicitValue bool) error {
 	m := valueMarshaler(me.value)
 	if !explicitValue && m.RequiresExplicitValue() {

@@ -71,7 +71,16 @@ func writeOptionUsage(w io.Writer, flags []arg) {
 	for _, f := range flags {
 		fmt.Fprint(tw, "  ")
 		fmt.Fprintf(tw, "%s%s", flagPrefix, f.name)
-		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), f.help)
+		help := f.help
+		if !f.hasZeroValue() {
+			_default := fmt.Sprintf("Default: %s", f.value)
+			if help == "" {
+				help = _default
+			} else {
+				help = fmt.Sprintf("%s (%s)", help, _default)
+			}
+		}
+		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), help)
 	}
 	tw.Flush()
 }
