@@ -73,7 +73,7 @@ func writeOptionUsage(w io.Writer, flags []arg) {
 		fmt.Fprintf(tw, "%s%s", flagPrefix, f.name)
 		help := f.help
 		if !f.hasZeroValue() {
-			_default := fmt.Sprintf("Default: %s", f.value)
+			_default := fmt.Sprintf("Default: %v", f.value)
 			if help == "" {
 				help = _default
 			} else {
