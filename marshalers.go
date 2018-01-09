@@ -37,6 +37,9 @@ func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 	if v.Kind() == reflect.Slice {
 		n := reflect.New(v.Type().Elem())
 		m := valueMarshaler(n.Elem())
+		if m == nil {
+			return fmt.Errorf("can't marshal type %s", n.Elem().Type())
+		}
 		err := m.Marshal(n.Elem(), s)
 		if err != nil {
 			return err

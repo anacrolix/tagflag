@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/anacrolix/missinggo/slices"
 	"github.com/huandu/xstrings"
 )
 
@@ -85,11 +86,11 @@ func (p *parser) parseCmd() error {
 	if s.Kind() != reflect.Struct {
 		return fmt.Errorf("expected struct got %s", s.Type())
 	}
-	return p.parseStruct(reflect.ValueOf(p.cmd).Elem())
+	return p.parseStruct(reflect.ValueOf(p.cmd).Elem(), nil)
 }
 
 // Positional arguments are marked per struct.
-func (p *parser) parseStruct(st reflect.Value) (err error) {
+func (p *parser) parseStruct(st reflect.Value, path []flagNameComponent) (err error) {
 	posStarted := false
 	foreachStructField(st, func(f reflect.Value, sf reflect.StructField) (stop bool) {
 		if !posStarted && f.Type() == reflect.TypeOf(StartPos{}) {
@@ -109,9 +110,9 @@ func (p *parser) parseStruct(st reflect.Value) (err error) {
 		}
 		if canMarshal(f) {
 			if posStarted {
-				err = p.addPos(f, sf)
+				err = p.addPos(f, sf, path)
 			} else {
-				err = p.addFlag(f, sf)
+				err = p.addFlag(f, sf, path)
 				if err != nil {
 					err = fmt.Errorf("error adding flag in %s: %s", st.Type(), err)
 				}
@@ -123,7 +124,7 @@ func (p *parser) parseStruct(st reflect.Value) (err error) {
 				err = fmt.Errorf("field %q has type %s, did you mean to use %s?", sf.Name, f.Type(), f.Addr().Type())
 				return true
 			}
-			err = p.parseStruct(f)
+			err = p.parseStruct(f, append(path, structFieldFlagNameComponent(sf)))
 			return err != nil
 		}
 		err = fmt.Errorf("field has bad type: %v", f.Type())
@@ -141,13 +142,19 @@ func newArg(v reflect.Value, sf reflect.StructField, name string) arg {
 	}
 }
 
-func (p *parser) addPos(f reflect.Value, sf reflect.StructField) error {
+func (p *parser) addPos(f reflect.Value, sf reflect.StructField, path []flagNameComponent) error {
 	p.posArgs = append(p.posArgs, newArg(f, sf, strings.ToUpper(xstrings.ToSnakeCase(sf.Name))))
 	return nil
 }
 
-func (p *parser) addFlag(f reflect.Value, sf reflect.StructField) error {
-	name := structFieldFlag(sf)
+func flagName(comps []flagNameComponent) string {
+	var ss []string
+	slices.MakeInto(&ss, comps)
+	return strings.Join(ss, ".")
+}
+
+func (p *parser) addFlag(f reflect.Value, sf reflect.StructField, path []flagNameComponent) error {
+	name := flagName(append(path, structFieldFlagNameComponent(sf)))
 	if _, ok := p.flags[name]; ok {
 		return fmt.Errorf("flag %q defined more than once", name)
 	}
@@ -211,10 +218,12 @@ func (p *parser) parsePos(s string) (err error) {
 	return
 }
 
-func structFieldFlag(sf reflect.StructField) string {
+type flagNameComponent string
+
+func structFieldFlagNameComponent(sf reflect.StructField) flagNameComponent {
 	name := sf.Tag.Get("name")
 	if name != "" {
-		return name
+		return flagNameComponent(name)
 	}
 	return fieldFlagName(sf.Name)
 }

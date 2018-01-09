@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 )
 
 // Struct fields after this one are considered positional arguments.
@@ -45,4 +46,13 @@ func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 		}
 		os.Exit(1)
 	}
+}
+
+func Unmarshal(arg string, v interface{}) error {
+	_v := reflect.ValueOf(v).Elem()
+	m := valueMarshaler(_v)
+	if m == nil {
+		return fmt.Errorf("can't unmarshal to type %s", _v.Type())
+	}
+	return m.Marshal(_v, arg)
 }

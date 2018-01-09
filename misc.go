@@ -64,19 +64,20 @@ func valueMarshaler(v reflect.Value) marshaler {
 
 // Turn a struct field name into a flag name. In particular this lower cases
 // leading acronyms, and the first capital letter.
-func fieldFlagName(fieldName string) (ret string) {
-	// defer func() { log.Println(fieldName, ret) }()
-	// TCP
-	if ss := regexp.MustCompile("^[[:upper:]]{2,}$").FindStringSubmatch(fieldName); ss != nil {
-		return strings.ToLower(ss[0])
-	}
-	// TCPAddr
-	if ss := regexp.MustCompile("^([[:upper:]]+)([[:upper:]][^[:upper:]].*?)$").FindStringSubmatch(fieldName); ss != nil {
-		return strings.ToLower(ss[1]) + ss[2]
-	}
-	// Addr
-	if ss := regexp.MustCompile("^([[:upper:]])(.*)$").FindStringSubmatch(fieldName); ss != nil {
-		return strings.ToLower(ss[1]) + ss[2]
-	}
-	panic(fieldName)
+func fieldFlagName(fieldName string) flagNameComponent {
+	return flagNameComponent(func() string {
+		// TCP
+		if ss := regexp.MustCompile("^[[:upper:]]{2,}$").FindStringSubmatch(fieldName); ss != nil {
+			return strings.ToLower(ss[0])
+		}
+		// TCPAddr
+		if ss := regexp.MustCompile("^([[:upper:]]+)([[:upper:]][^[:upper:]].*?)$").FindStringSubmatch(fieldName); ss != nil {
+			return strings.ToLower(ss[1]) + ss[2]
+		}
+		// Addr
+		if ss := regexp.MustCompile("^([[:upper:]])(.*)$").FindStringSubmatch(fieldName); ss != nil {
+			return strings.ToLower(ss[1]) + ss[2]
+		}
+		panic(fieldName)
+	}())
 }

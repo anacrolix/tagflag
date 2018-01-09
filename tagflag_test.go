@@ -322,3 +322,12 @@ func TestFieldAfterExcessArgs(t *testing.T) {
 	}
 	require.EqualValues(t, ErrFieldsAfterExcessArgs, ParseErr(&cmd, nil))
 }
+
+func TestSliceOfUnmarshallableStruct(t *testing.T) {
+	var cmd struct {
+		StartPos
+		Complex []struct{}
+	}
+	require.EqualError(t, ParseErr(&cmd, []string{"herp"}), "can't marshal type struct {}")
+
+}
