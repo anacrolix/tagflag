@@ -2,9 +2,8 @@ package tagflag
 
 import (
 	"reflect"
-	"regexp"
 	"strconv"
-	"strings"
+	"unicode"
 
 	"github.com/bradfitz/iter"
 )
@@ -65,19 +64,16 @@ func valueMarshaler(v reflect.Value) marshaler {
 // Turn a struct field name into a flag name. In particular this lower cases
 // leading acronyms, and the first capital letter.
 func fieldFlagName(fieldName string) flagNameComponent {
-	return flagNameComponent(func() string {
-		// TCP
-		if ss := regexp.MustCompile("^[[:upper:]]{2,}$").FindStringSubmatch(fieldName); ss != nil {
-			return strings.ToLower(ss[0])
+	return flagNameComponent(func() (ret []rune) {
+		fieldNameRunes := []rune(fieldName)
+		for i, r := range fieldNameRunes {
+			prevUpper := func() bool { return unicode.IsUpper(fieldNameRunes[i-1]) }
+			nextUpper := func() bool { return unicode.IsUpper(fieldNameRunes[i+1]) }
+			if i == 0 || (prevUpper() && (i == len(fieldNameRunes)-1 || nextUpper())) {
+				r = unicode.ToLower(r)
+			}
+			ret = append(ret, r)
 		}
-		// TCPAddr
-		if ss := regexp.MustCompile("^([[:upper:]]+)([[:upper:]][^[:upper:]].*?)$").FindStringSubmatch(fieldName); ss != nil {
-			return strings.ToLower(ss[1]) + ss[2]
-		}
-		// Addr
-		if ss := regexp.MustCompile("^([[:upper:]])(.*)$").FindStringSubmatch(fieldName); ss != nil {
-			return strings.ToLower(ss[1]) + ss[2]
-		}
-		panic(fieldName)
+		return
 	}())
 }

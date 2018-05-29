@@ -232,6 +232,7 @@ func TestDefaultLongFlagName(t *testing.T) {
 	f("v", "V")
 	f("a", "A")
 	f("redisUrl", "RedisURL")
+	f("redisUrl", "redisURL")
 }
 
 func TestPrintUsage(t *testing.T) {
