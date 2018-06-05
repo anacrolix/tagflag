@@ -50,7 +50,7 @@ func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 
 func Unmarshal(arg string, v interface{}) error {
 	_v := reflect.ValueOf(v).Elem()
-	m := valueMarshaler(_v)
+	m := valueMarshaler(_v.Type())
 	if m == nil {
 		return fmt.Errorf("can't unmarshal to type %s", _v.Type())
 	}

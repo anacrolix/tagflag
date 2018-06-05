@@ -36,7 +36,7 @@ type defaultMarshaler struct{}
 func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 	if v.Kind() == reflect.Slice {
 		n := reflect.New(v.Type().Elem())
-		m := valueMarshaler(n.Elem())
+		m := valueMarshaler(n.Elem().Type())
 		if m == nil {
 			return fmt.Errorf("can't marshal type %s", n.Elem().Type())
 		}
@@ -70,4 +70,18 @@ func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 
 func (defaultMarshaler) RequiresExplicitValue() bool {
 	return true
+}
+
+type ptrMarshaler struct {
+	inner marshaler
+}
+
+func (me ptrMarshaler) Marshal(v reflect.Value, s string) error {
+	elemValue := reflect.New(v.Type().Elem())
+	v.Set(elemValue)
+	return me.inner.Marshal(elemValue.Elem(), s)
+}
+
+func (me ptrMarshaler) RequiresExplicitValue() bool {
+	return false
 }

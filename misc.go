@@ -25,24 +25,30 @@ func foreachStructField(_struct reflect.Value, f func(fv reflect.Value, sf refle
 }
 
 func canMarshal(f reflect.Value) bool {
-	return valueMarshaler(f) != nil
+	return valueMarshaler(f.Type()) != nil
 }
 
 // Returns a marshaler for the given value, or nil if there isn't one.
-func valueMarshaler(v reflect.Value) marshaler {
-	if v.CanAddr() {
-		if am, ok := v.Addr().Interface().(Marshaler); ok {
-			return dynamicMarshaler{
-				marshal:               func(_ reflect.Value, s string) error { return am.Marshal(s) },
-				explicitValueRequired: am.RequiresExplicitValue(),
-			}
+func valueMarshaler(t reflect.Type) marshaler {
+	if zm, ok := reflect.Zero(reflect.PtrTo(t)).Interface().(Marshaler); ok {
+		return dynamicMarshaler{
+			marshal: func(v reflect.Value, s string) error {
+				return v.Addr().Interface().(Marshaler).Marshal(s)
+			},
+			explicitValueRequired: zm.RequiresExplicitValue(),
 		}
 	}
-	if bm, ok := builtinMarshalers[v.Type()]; ok {
+	if bm, ok := builtinMarshalers[t]; ok {
 		return bm
 	}
-	switch v.Kind() {
-	case reflect.Ptr, reflect.Struct:
+	switch t.Kind() {
+	case reflect.Ptr:
+		m := valueMarshaler(t.Elem())
+		if m == nil {
+			return nil
+		}
+		return ptrMarshaler{m}
+	case reflect.Struct:
 		return nil
 	case reflect.Bool:
 		return dynamicMarshaler{

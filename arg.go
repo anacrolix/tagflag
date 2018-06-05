@@ -19,9 +19,9 @@ func (me arg) hasZeroValue() bool {
 }
 
 func (me arg) marshal(s string, explicitValue bool) error {
-	m := valueMarshaler(me.value)
-	if !explicitValue && m.RequiresExplicitValue() {
+	m := valueMarshaler(me.value.Type())
+	if m.RequiresExplicitValue() && !explicitValue {
 		return userError{fmt.Sprintf("explicit value required (%s%s=VALUE)", flagPrefix, me.name)}
 	}
-	return valueMarshaler(me.value).Marshal(me.value, s)
+	return m.Marshal(me.value, s)
 }

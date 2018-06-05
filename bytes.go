@@ -6,7 +6,7 @@ import "github.com/dustin/go-humanize"
 // int64. For example 100GB. See https://godoc.org/github.com/dustin/go-humanize.
 type Bytes int64
 
-var _ Marshaler = new(Bytes)
+var _ Marshaler = (*Bytes)(nil)
 
 func (me *Bytes) Marshal(s string) (err error) {
 	ui64, err := humanize.ParseBytes(s)
@@ -17,7 +17,7 @@ func (me *Bytes) Marshal(s string) (err error) {
 	return
 }
 
-func (Bytes) RequiresExplicitValue() bool {
+func (*Bytes) RequiresExplicitValue() bool {
 	return false
 }
 

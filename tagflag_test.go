@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,11 +78,7 @@ func TestNotBasic(t *testing.T) {
 		StartPos
 		Torrent []string `arity:"+"`
 	}
-	for _, _case := range []struct {
-		args     []string
-		err      error
-		expected cmd
-	}{
+	for _, _case := range []parseCase{
 		{nil, userError{`missing argument: "TORRENT"`}, cmd{}},
 		{
 			[]string{"-seed"},
@@ -166,11 +163,7 @@ func TestBasicPositionalArities(t *testing.T) {
 		B int64    `arity:"?"`
 		D []string `arity:"*"`
 	}
-	for _, _case := range []struct {
-		args     []string
-		err      error
-		expected cmd
-	}{
+	for _, _case := range []parseCase{
 		// {nil, userError{`missing argument: "A"`}, cmd{}},
 		{[]string{"abc"}, nil, cmd{A: "abc"}},
 		{[]string{"abc", "123"}, nil, cmd{A: "abc", B: 123}},
@@ -269,13 +262,6 @@ func TestPosArgSlice(t *testing.T) {
 	assert.EqualValues(t, []string{"a", "b", "c"}, cmd1.Args)
 }
 
-func TestUnmarshallableTypes(t *testing.T) {
-	var cmd1 struct {
-		Wtf *int
-	}
-	assert.Contains(t, ParseErr(&cmd1, []string{"-wtf=yo"}).Error(), "*int")
-}
-
 func TestTCPAddrNoExplicitValue(t *testing.T) {
 	var cmd struct {
 		Addr *net.TCPAddr
@@ -335,5 +321,22 @@ func TestSliceOfUnmarshallableStruct(t *testing.T) {
 		Complex []struct{}
 	}
 	require.EqualError(t, ParseErr(&cmd, []string{"herp"}), "can't marshal type struct {}")
+}
 
+func newStruct(ref interface{}) func() interface{} {
+	return func() interface{} {
+		return reflect.New(reflect.TypeOf(ref)).Interface()
+	}
+}
+
+func TestBasicPointer(t *testing.T) {
+	type cmd struct {
+		Maybe *bool
+	}
+	_true := true
+	RunCases(t, []parseCase{
+		noErrorCase(cmd{}),
+		errorCase(userError{`excess argument: "nope"`}, "nope"),
+		noErrorCase(cmd{Maybe: &_true}, "-maybe=true"),
+	}, newStruct(cmd{}))
 }

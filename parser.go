@@ -83,10 +83,13 @@ func (p *parser) parseCmd() error {
 		return nil
 	}
 	s := reflect.ValueOf(p.cmd).Elem()
+	for s.Kind() == reflect.Interface {
+		s = s.Elem()
+	}
 	if s.Kind() != reflect.Struct {
 		return fmt.Errorf("expected struct got %s", s.Type())
 	}
-	return p.parseStruct(reflect.ValueOf(p.cmd).Elem(), nil)
+	return p.parseStruct(s, nil)
 }
 
 // Positional arguments are marked per struct.
