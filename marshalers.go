@@ -34,7 +34,8 @@ func (me dynamicMarshaler) RequiresExplicitValue() bool {
 type defaultMarshaler struct{}
 
 func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
-	if v.Kind() == reflect.Slice {
+	switch v.Kind() {
+	case reflect.Slice:
 		n := reflect.New(v.Type().Elem())
 		m := valueMarshaler(n.Elem().Type())
 		if m == nil {
@@ -46,8 +47,6 @@ func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 		}
 		v.Set(reflect.Append(v, n.Elem()))
 		return nil
-	}
-	switch v.Kind() {
 	case reflect.Int:
 		x, err := strconv.ParseInt(s, 0, 0)
 		v.SetInt(x)
