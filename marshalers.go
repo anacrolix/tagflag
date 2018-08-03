@@ -8,6 +8,7 @@ import (
 
 type Marshaler interface {
 	Marshal(in string) error
+	// Must have and ignore a pointer receiver.
 	RequiresExplicitValue() bool
 }
 
