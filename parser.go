@@ -2,7 +2,6 @@ package tagflag
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 
@@ -229,44 +228,6 @@ func structFieldFlagNameComponent(sf reflect.StructField) flagNameComponent {
 		return flagNameComponent(name)
 	}
 	return fieldFlagName(sf.Name)
-}
-
-// Gets the reflect.Value for the nth positional argument.
-func posIndexValue(v reflect.Value, _i int) (ret reflect.Value, i int) {
-	i = _i
-	log.Println("posIndexValue", v.Type(), i)
-	switch v.Kind() {
-	case reflect.Ptr:
-		return posIndexValue(v.Elem(), i)
-	case reflect.Struct:
-		posStarted := false
-		foreachStructField(v, func(fv reflect.Value, sf reflect.StructField) bool {
-			log.Println("posIndexValue struct field", fv, sf)
-			if !posStarted {
-				if fv.Type() == reflect.TypeOf(StartPos{}) {
-					// log.Println("posStarted")
-					posStarted = true
-				}
-				return true
-			}
-			ret, i = posIndexValue(fv, i)
-			if ret.IsValid() {
-				return false
-			}
-			return true
-		})
-		return
-	case reflect.Slice:
-		ret = v
-		return
-	default:
-		if i == 0 {
-			ret = v
-			return
-		}
-		i--
-		return
-	}
 }
 
 func (p *parser) posWithHelp() (ret []arg) {
