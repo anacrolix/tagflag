@@ -36,7 +36,7 @@ func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 		err = p.parse(args)
 	}
 	if err == ErrDefaultHelp {
-		p.printUsage(os.Stderr)
+		p.printUsage(os.Stdout)
 		os.Exit(0)
 	}
 	if err != nil {
