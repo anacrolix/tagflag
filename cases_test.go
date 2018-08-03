@@ -9,7 +9,7 @@ import (
 
 type parseCase struct {
 	args     []string
-	err      error
+	err      func(*testing.T, error)
 	expected interface{}
 }
 
@@ -18,17 +18,32 @@ func noErrorCase(expected interface{}, args ...string) parseCase {
 }
 
 func errorCase(err error, args ...string) parseCase {
-	return parseCase{args: args, err: err}
+	return parseCase{
+		args: args,
+		err: func(t *testing.T, actualErr error) {
+			assert.EqualValues(t, err, actualErr)
+		},
+	}
+}
+
+func anyErrorCase(args ...string) parseCase {
+	return parseCase{
+		args: args,
+		err: func(t *testing.T, err error) {
+			assert.Error(t, err)
+		},
+	}
 }
 
 func (me parseCase) Run(t *testing.T, newCmd func() interface{}) {
 	cmd := newCmd()
 	err := ParseErr(cmd, me.args)
-	assert.EqualValues(t, me.err, err)
-	if me.err != nil {
-		return
+	if me.err == nil {
+		assert.NoError(t, err)
+		assert.EqualValues(t, me.expected, reflect.ValueOf(cmd).Elem().Interface(), "%v", me)
+	} else {
+		me.err(t, err)
 	}
-	assert.EqualValues(t, me.expected, reflect.ValueOf(cmd).Elem().Interface(), "%v", me)
 }
 
 func RunCases(t *testing.T, cases []parseCase, newCmd func() interface{}) {

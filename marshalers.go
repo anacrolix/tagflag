@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+
+	"github.com/pkg/errors"
 )
 
 type Marshaler interface {
@@ -63,6 +65,26 @@ func (defaultMarshaler) Marshal(v reflect.Value, s string) error {
 	case reflect.String:
 		v.SetString(s)
 		return nil
+	case reflect.Array:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			if len(s) == 2*v.Len() {
+				var sl []byte = v.Slice(0, v.Len()).Interface().([]byte)
+				// log.Println(cap(sl), len(sl))
+				// hex.DecodeString(s)
+				_, err := fmt.Sscanf(s, "%x", &sl)
+				// log.Println(cap(sl), sl, err)
+				if err != nil {
+					return errors.Wrapf(err, "scanning hex")
+				}
+				// Seems the slice moves as part of the decoding :|
+				reflect.Copy(v, reflect.ValueOf(sl))
+			} else {
+				return errors.Errorf("argument has unhandled length %d", len(s))
+			}
+			return nil
+		} else {
+			return errors.Errorf("unhandled array elem type: %s", v.Type().String())
+		}
 	default:
 		return fmt.Errorf("unhandled builtin type: %s", v.Type().String())
 	}
