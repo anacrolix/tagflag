@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+
+	"golang.org/x/xerrors"
 )
 
 // Struct fields after this one are considered positional arguments.
@@ -36,7 +38,7 @@ func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 	if err == nil {
 		err = p.parse(args)
 	}
-	if err == ErrDefaultHelp {
+	if xerrors.Is(err, ErrDefaultHelp) {
 		p.printUsage(os.Stdout)
 		os.Exit(0)
 	}
