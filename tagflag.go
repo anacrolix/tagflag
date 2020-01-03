@@ -41,7 +41,7 @@ func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 		os.Exit(0)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tagflag: %s\n", err)
+		fmt.Fprintf(os.Stderr, "tagflag: error parsing args: %v\n", err)
 		if _, ok := err.(userError); ok {
 			os.Exit(2)
 		}

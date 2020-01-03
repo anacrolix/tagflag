@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/xerrors"
 )
 
 func TestBasic(t *testing.T) {
@@ -60,7 +61,7 @@ func TestBasic(t *testing.T) {
 	} {
 		var actual simpleCmd
 		err := ParseErr(&actual, _case.args)
-		assert.EqualValues(t, _case.err, err)
+		assert.True(t, xerrors.Is(err, _case.err))
 		if _case.err != nil || _case.err != err {
 			// The value we got doesn't matter.
 			continue
@@ -227,9 +228,9 @@ func TestDefaultLongFlagName(t *testing.T) {
 
 func TestPrintUsage(t *testing.T) {
 	err := ParseErr(nil, []string{"-h"})
-	assert.Equal(t, ErrDefaultHelp, err)
+	assert.True(t, xerrors.Is(err, ErrDefaultHelp), "%#v", err)
 	err = ParseErr(nil, []string{"-help"})
-	assert.Equal(t, ErrDefaultHelp, err)
+	assert.True(t, xerrors.Is(err, ErrDefaultHelp))
 }
 
 func TestParseUnnamedTypes(t *testing.T) {
@@ -272,7 +273,9 @@ func TestUnexportedStructField(t *testing.T) {
 		badField bool
 	}
 	assert.NoError(t, ParseErr(&cmd, nil))
-	assert.EqualError(t, ParseErr(&cmd, []string{"-badField"}), `unknown flag: "badField"`)
+	var ue userError
+	require.True(t, xerrors.As(ParseErr(&cmd, []string{"-badField"}), &ue))
+	assert.EqualValues(t, userError{`unknown flag: "badField"`}, ue)
 }
 
 func TestExcessArgsEmpty(t *testing.T) {

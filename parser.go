@@ -7,6 +7,7 @@ import (
 
 	"github.com/anacrolix/missinggo/slices"
 	"github.com/huandu/xstrings"
+	"golang.org/x/xerrors"
 )
 
 type parser struct {
@@ -46,6 +47,9 @@ func (p *parser) parse(args []string) (err error) {
 		}
 		if !posOnly && isFlag(a) {
 			err = p.parseFlag(a[1:])
+			if err != nil {
+				err = xerrors.Errorf("parsing flag %q: %w", a[1:], err)
+			}
 		} else {
 			err = p.parsePos(a)
 		}
@@ -188,7 +192,7 @@ func (p *parser) parseFlag(s string) error {
 	}
 	err := flag.marshal(v, i != -1)
 	if err != nil {
-		return fmt.Errorf("error setting flag %q: %s", k, err)
+		return xerrors.Errorf("parsing value %q for flag %q: %w", v, k, err)
 	}
 	return nil
 }
