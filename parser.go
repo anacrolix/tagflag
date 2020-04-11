@@ -10,13 +10,18 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type parser struct {
-	// The value from which the parser is built, and values are assigned.
+type Parser struct {
+	// The value from which the Parser is built, and values are assigned.
 	cmd interface{}
 	// Disables the default handling of -h and -help.
 	noDefaultHelp bool
 	program       string
 	description   string
+	// Whether the first non-option argument requires that all further arguments are to be treated
+	// as positional.
+	parseIntermixed bool
+	// The Parser that preceded this one, such as in sub-command relationship.
+	parent *Parser
 
 	posArgs []arg
 	// Maps -K=V to map[K]arg(V)
@@ -28,11 +33,11 @@ type parser struct {
 	numPos int
 }
 
-func (p *parser) hasOptions() bool {
+func (p *Parser) hasOptions() bool {
 	return len(p.flags) != 0
 }
 
-func (p *parser) parse(args []string) (err error) {
+func (p *Parser) parse(args []string) (err error) {
 	posOnly := false
 	for len(args) != 0 {
 		if p.excess != nil && p.nextPosArg() == nil {
@@ -52,6 +57,9 @@ func (p *parser) parse(args []string) (err error) {
 			}
 		} else {
 			err = p.parsePos(a)
+			if !p.parseIntermixed {
+				posOnly = true
+			}
 		}
 		if err != nil {
 			return
@@ -63,16 +71,17 @@ func (p *parser) parse(args []string) (err error) {
 	return
 }
 
-func (p *parser) minPos() (min int) {
+func (p *Parser) minPos() (min int) {
 	for _, arg := range p.posArgs {
 		min += arg.arity.min
 	}
 	return
 }
 
-func newParser(cmd interface{}, opts ...parseOpt) (p *parser, err error) {
-	p = &parser{
-		cmd: cmd,
+func newParser(cmd interface{}, opts ...parseOpt) (p *Parser, err error) {
+	p = &Parser{
+		cmd:             cmd,
+		parseIntermixed: true,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -81,7 +90,7 @@ func newParser(cmd interface{}, opts ...parseOpt) (p *parser, err error) {
 	return
 }
 
-func (p *parser) parseCmd() error {
+func (p *Parser) parseCmd() error {
 	if p.cmd == nil {
 		return nil
 	}
@@ -96,7 +105,7 @@ func (p *parser) parseCmd() error {
 }
 
 // Positional arguments are marked per struct.
-func (p *parser) parseStruct(st reflect.Value, path []flagNameComponent) (err error) {
+func (p *Parser) parseStruct(st reflect.Value, path []flagNameComponent) (err error) {
 	posStarted := false
 	foreachStructField(st, func(f reflect.Value, sf reflect.StructField) (stop bool) {
 		if !posStarted && f.Type() == reflect.TypeOf(StartPos{}) {
@@ -148,7 +157,7 @@ func newArg(v reflect.Value, sf reflect.StructField, name string) arg {
 	}
 }
 
-func (p *parser) addPos(f reflect.Value, sf reflect.StructField, path []flagNameComponent) error {
+func (p *Parser) addPos(f reflect.Value, sf reflect.StructField, path []flagNameComponent) error {
 	p.posArgs = append(p.posArgs, newArg(f, sf, strings.ToUpper(xstrings.ToSnakeCase(sf.Name))))
 	return nil
 }
@@ -159,7 +168,7 @@ func flagName(comps []flagNameComponent) string {
 	return strings.Join(ss, ".")
 }
 
-func (p *parser) addFlag(f reflect.Value, sf reflect.StructField, path []flagNameComponent) error {
+func (p *Parser) addFlag(f reflect.Value, sf reflect.StructField, path []flagNameComponent) error {
 	name := flagName(append(path, structFieldFlagNameComponent(sf)))
 	if _, ok := p.flags[name]; ok {
 		return fmt.Errorf("flag %q defined more than once", name)
@@ -175,7 +184,7 @@ func isFlag(arg string) bool {
 	return len(arg) > 1 && arg[0] == '-'
 }
 
-func (p *parser) parseFlag(s string) error {
+func (p *Parser) parseFlag(s string) error {
 	i := strings.IndexByte(s, '=')
 	k := s
 	v := ""
@@ -197,7 +206,7 @@ func (p *parser) parseFlag(s string) error {
 	return nil
 }
 
-func (p *parser) indexPosArg(i int) *arg {
+func (p *Parser) indexPosArg(i int) *arg {
 	for _, arg := range p.posArgs {
 		if i < arg.arity.max {
 			return &arg
@@ -207,11 +216,11 @@ func (p *parser) indexPosArg(i int) *arg {
 	return nil
 }
 
-func (p *parser) nextPosArg() *arg {
+func (p *Parser) nextPosArg() *arg {
 	return p.indexPosArg(p.numPos)
 }
 
-func (p *parser) parsePos(s string) (err error) {
+func (p *Parser) parsePos(s string) (err error) {
 	arg := p.nextPosArg()
 	if arg == nil {
 		return userError{fmt.Sprintf("excess argument: %q", s)}
@@ -234,7 +243,7 @@ func structFieldFlagNameComponent(sf reflect.StructField) flagNameComponent {
 	return fieldFlagName(sf.Name)
 }
 
-func (p *parser) posWithHelp() (ret []arg) {
+func (p *Parser) posWithHelp() (ret []arg) {
 	for _, a := range p.posArgs {
 		if a.help != "" {
 			ret = append(ret, a)

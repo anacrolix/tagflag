@@ -27,13 +27,13 @@ func ParseErr(cmd interface{}, args []string, opts ...parseOpt) (err error) {
 
 // Parses the command-line arguments, exiting the process appropriately on
 // errors or if usage is printed.
-func Parse(cmd interface{}, opts ...parseOpt) {
+func Parse(cmd interface{}, opts ...parseOpt) *Parser {
 	opts = append([]parseOpt{Program(filepath.Base(os.Args[0]))}, opts...)
-	ParseArgs(cmd, os.Args[1:], opts...)
+	return ParseArgs(cmd, os.Args[1:], opts...)
 }
 
 // Like Parse, but operates on the given args instead.
-func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
+func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) *Parser {
 	p, err := newParser(cmd, opts...)
 	if err == nil {
 		err = p.parse(args)
@@ -49,6 +49,7 @@ func ParseArgs(cmd interface{}, args []string, opts ...parseOpt) {
 		}
 		os.Exit(1)
 	}
+	return p
 }
 
 func Unmarshal(arg string, v interface{}) error {
