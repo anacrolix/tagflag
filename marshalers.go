@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// TODO: Perhaps this should embed encoding.TextUnmarshaler instead.
 type Marshaler interface {
 	Marshal(in string) error
 	// Must have and ignore a pointer receiver.
