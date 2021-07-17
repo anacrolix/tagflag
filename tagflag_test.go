@@ -352,3 +352,15 @@ func TestMarshalByteArray(t *testing.T) {
 		// anyErrorCase("4142"),
 	}, newStruct(cmd{}))
 }
+
+func TestMarshalStruct(t *testing.T) {
+	type InternalStruct struct {
+		A bool
+	}
+	var cmd struct {
+		Struct InternalStruct
+		StartPos
+		StructPos InternalStruct
+	}
+	ParseErr(&cmd, []string{"-struct", "structpos"})
+}
