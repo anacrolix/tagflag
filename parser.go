@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/anacrolix/missinggo/slices"
+	"github.com/anacrolix/missinggo/v2/slices"
 	"github.com/huandu/xstrings"
 	"golang.org/x/xerrors"
 )

@@ -5,8 +5,8 @@ import (
 	"io"
 	"text/tabwriter"
 
-	"github.com/anacrolix/missinggo"
-	"github.com/anacrolix/missinggo/slices"
+	"github.com/anacrolix/missinggo/v2"
+	"github.com/anacrolix/missinggo/v2/slices"
 )
 
 func (p *Parser) printPosArgUsage(w io.Writer) {
