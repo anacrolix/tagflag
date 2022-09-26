@@ -2,6 +2,7 @@ package tagflag
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"reflect"
@@ -61,8 +62,12 @@ func init() {
 	addBuiltinDynamicMarshaler(func(s string) (time.Duration, error) {
 		return time.ParseDuration(s)
 	}, false)
-	addBuiltinDynamicMarshaler(func(s string) net.IP {
-		return net.ParseIP(s)
+	addBuiltinDynamicMarshaler(func(s string) (ip net.IP, err error) {
+		ip = net.ParseIP(s)
+		if ip == nil {
+			err = fmt.Errorf("failed to parse IP")
+		}
+		return
 	}, false)
 }
 
