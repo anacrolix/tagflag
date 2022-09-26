@@ -134,17 +134,38 @@ func (p *Parser) parseStruct(st reflect.Value, path []flagNameComponent) (err er
 			}
 			return err != nil
 		}
-		if f.Kind() == reflect.Struct {
-			if canMarshal(f.Addr()) {
-				err = fmt.Errorf("field %q has type %s, did you mean to use %s?", sf.Name, f.Type(), f.Addr().Type())
-				return true
-			}
-			err = p.parseStruct(f, append(path, structFieldFlagNameComponent(sf)))
-			return err != nil
+		var parsed bool
+		parsed, err = p.parseEmbeddedStruct(f, sf, path)
+		if err != nil {
+			err = fmt.Errorf("parsing embedded struct: %w", err)
+			stop = true
+			return
+		}
+		if parsed {
+			return false
 		}
 		err = fmt.Errorf("field has bad type: %v", f.Type())
 		return true
 	})
+	return
+}
+
+func (p *Parser) parseEmbeddedStruct(f reflect.Value, sf reflect.StructField, path []flagNameComponent) (parsed bool, err error) {
+	if f.Kind() == reflect.Ptr {
+		f = f.Elem()
+	}
+	if f.Kind() != reflect.Struct {
+		return
+	}
+	if canMarshal(f.Addr()) {
+		err = fmt.Errorf("field %q has type %s, but %s is marshalable", sf.Name, f.Type(), f.Addr().Type())
+		return
+	}
+	parsed = true
+	if !sf.Anonymous {
+		path = append(path, structFieldFlagNameComponent(sf))
+	}
+	err = p.parseStruct(f, path)
 	return
 }
 
