@@ -80,12 +80,10 @@ func writeOptionUsage(w io.Writer, flags []arg) {
 		fmt.Fprintf(tw, "%s%s", flagPrefix, f.name)
 		help := f.help
 		if !f.hasZeroValue() {
-			_default := fmt.Sprintf("Default: %v", f.value)
-			if help == "" {
-				help = _default
-			} else {
-				help = fmt.Sprintf("%s (%s)", help, _default)
+			if help != "" {
+				help += " "
 			}
+			help += fmt.Sprintf("(Default: %v)", f.value)
 		}
 		fmt.Fprintf(tw, "\t(%s)\t%s\n", f.value.Type(), help)
 	}
