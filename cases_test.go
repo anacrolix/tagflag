@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/go-quicktest/qt"
 )
 
 type parseCase struct {
@@ -21,7 +21,7 @@ func errorCase(err error, args ...string) parseCase {
 	return parseCase{
 		args: args,
 		err: func(t *testing.T, actualErr error) {
-			assert.EqualValues(t, err, actualErr)
+			qt.Check(t, qt.Equals(actualErr, err))
 		},
 	}
 }
@@ -30,7 +30,7 @@ func anyErrorCase(args ...string) parseCase {
 	return parseCase{
 		args: args,
 		err: func(t *testing.T, err error) {
-			assert.Error(t, err)
+			qt.Check(t, qt.IsNotNil(err))
 		},
 	}
 }
@@ -39,8 +39,10 @@ func (me parseCase) Run(t *testing.T, newCmd func() interface{}) {
 	cmd := newCmd()
 	err := ParseErr(cmd, me.args)
 	if me.err == nil {
-		assert.NoError(t, err)
-		assert.EqualValues(t, me.expected, reflect.ValueOf(cmd).Elem().Interface(), "%v", me)
+		qt.Check(t, qt.IsNil(err))
+		qt.Check(t,
+			qt.DeepEquals[any](reflect.ValueOf(cmd).Elem().Interface(), me.expected),
+			qt.Commentf("%v", me))
 	} else {
 		me.err(t, err)
 	}

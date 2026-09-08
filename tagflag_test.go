@@ -5,10 +5,10 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"regexp"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/go-quicktest/qt"
 	"golang.org/x/xerrors"
 )
 
@@ -61,12 +61,12 @@ func TestBasic(t *testing.T) {
 	} {
 		var actual simpleCmd
 		err := ParseErr(&actual, _case.args)
-		assert.True(t, xerrors.Is(err, _case.err))
+		qt.Check(t, qt.IsTrue(xerrors.Is(err, _case.err)))
 		if _case.err != nil || _case.err != err {
 			// The value we got doesn't matter.
 			continue
 		}
-		assert.EqualValues(t, _case.expected, actual)
+		qt.Check(t, qt.Equals(actual, _case.expected))
 	}
 }
 
@@ -118,18 +118,19 @@ func TestNotBasic(t *testing.T) {
 	} {
 		var actual cmd
 		err := ParseErr(&actual, _case.args)
-		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
+			_case.err(t, err)
 			continue
 		}
-		assert.EqualValues(t, _case.expected, actual)
+		qt.Check(t, qt.IsNil(err))
+		qt.Check(t, qt.DeepEquals[any](actual, _case.expected))
 	}
 }
 
 func TestBadCommand(t *testing.T) {
-	// assert.Error(t, ParseErr(struct{}{}, nil))
-	assert.NoError(t, ParseErr(new(struct{}), nil))
-	assert.NoError(t, ParseErr(nil, nil))
+	// qt.Check(t, qt.IsNotNil(ParseErr(struct{}{}, nil)))
+	qt.Check(t, qt.IsNil(ParseErr(new(struct{}), nil)))
+	qt.Check(t, qt.IsNil(ParseErr(nil, nil)))
 }
 
 func TestVarious(t *testing.T) {
@@ -137,19 +138,21 @@ func TestVarious(t *testing.T) {
 		StartPos
 		A string `arity:"?"`
 	}{}
-	assert.NoError(t, ParseErr(a, nil))
-	assert.NoError(t, ParseErr(a, []string{"a"}))
-	assert.EqualValues(t, "a", a.A)
-	assert.EqualError(t, ParseErr(a, []string{"a", "b"}), `excess argument: "b"`)
+	qt.Check(t, qt.IsNil(ParseErr(a, nil)))
+	qt.Check(t, qt.IsNil(ParseErr(a, []string{"a"})))
+	qt.Check(t, qt.Equals(a.A, "a"))
+	qt.Check(t, qt.ErrorMatches(
+		ParseErr(a, []string{"a", "b"}),
+		regexp.QuoteMeta(`excess argument: "b"`)))
 }
 
 func TestUint(t *testing.T) {
 	var a struct {
 		A uint
 	}
-	assert.Error(t, ParseErr(&a, []string{"-a"}))
-	assert.Error(t, ParseErr(&a, []string{"-a", "-1"}))
-	assert.NoError(t, ParseErr(&a, []string{"-a=42"}))
+	qt.Check(t, qt.IsNotNil(ParseErr(&a, []string{"-a"})))
+	qt.Check(t, qt.IsNotNil(ParseErr(&a, []string{"-a", "-1"})))
+	qt.Check(t, qt.IsNil(ParseErr(&a, []string{"-a=42"})))
 }
 
 func TestBasicPositionalArities(t *testing.T) {
@@ -171,11 +174,12 @@ func TestBasicPositionalArities(t *testing.T) {
 	} {
 		var actual cmd
 		err := ParseErr(&actual, _case.args)
-		assert.EqualValues(t, _case.err, err)
 		if _case.err != nil {
+			_case.err(t, err)
 			continue
 		}
-		assert.EqualValues(t, _case.expected, actual)
+		qt.Check(t, qt.IsNil(err))
+		qt.Check(t, qt.DeepEquals[any](actual, _case.expected))
 	}
 }
 
@@ -184,8 +188,8 @@ func TestBytes(t *testing.T) {
 		B Bytes
 	}
 	err := ParseErr(&cmd, []string{"-b=100g"})
-	assert.NoError(t, err)
-	assert.EqualValues(t, 100e9, cmd.B)
+	qt.Check(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(cmd.B, 100e9))
 }
 
 func TestPtrToCustom(t *testing.T) {
@@ -193,11 +197,11 @@ func TestPtrToCustom(t *testing.T) {
 		Addr *net.TCPAddr
 	}
 	err := ParseErr(&cmd, []string{"-addr=:443"})
-	assert.NoError(t, err)
-	assert.EqualValues(t, ":443", cmd.Addr.String())
+	qt.Check(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(cmd.Addr.String(), ":443"))
 	err = ParseErr(&cmd, []string{"-addr="})
-	assert.NoError(t, err)
-	assert.Nil(t, cmd.Addr)
+	qt.Check(t, qt.IsNil(err))
+	qt.Check(t, qt.IsNil(cmd.Addr))
 }
 
 func TestResolveTCPAddr(t *testing.T) {
@@ -212,7 +216,7 @@ func TestMain(m *testing.M) {
 
 func TestDefaultLongFlagName(t *testing.T) {
 	f := func(expected, start string) {
-		assert.EqualValues(t, expected, fieldFlagName(start), start)
+		qt.Check(t, qt.Equals(string(fieldFlagName(start)), expected), qt.Commentf("%s", start))
 	}
 	f("noUpload", "NoUpload")
 	f("dht", "DHT")
@@ -228,9 +232,9 @@ func TestDefaultLongFlagName(t *testing.T) {
 
 func TestPrintUsage(t *testing.T) {
 	err := ParseErr(nil, []string{"-h"})
-	assert.True(t, xerrors.Is(err, ErrDefaultHelp), "%#v", err)
+	qt.Check(t, qt.IsTrue(xerrors.Is(err, ErrDefaultHelp)), qt.Commentf("%#v", err))
 	err = ParseErr(nil, []string{"-help"})
-	assert.True(t, xerrors.Is(err, ErrDefaultHelp))
+	qt.Check(t, qt.IsTrue(xerrors.Is(err, ErrDefaultHelp)))
 }
 
 func TestParseUnnamedTypes(t *testing.T) {
@@ -238,7 +242,7 @@ func TestParseUnnamedTypes(t *testing.T) {
 		A []byte
 		B bool
 	}
-	assert.NoError(t, ParseErr(&cmd1, nil))
+	qt.Check(t, qt.IsNil(ParseErr(&cmd1, nil)))
 	type B []byte
 	var cmd2 struct {
 		A B
@@ -256,34 +260,34 @@ func TestPosArgSlice(t *testing.T) {
 		StartPos
 		Args []string
 	}
-	require.NoError(t, ParseErr(&cmd1, []string{"a", "b", "c"}))
-	assert.EqualValues(t, []string{"a", "b", "c"}, cmd1.Args)
+	qt.Assert(t, qt.IsNil(ParseErr(&cmd1, []string{"a", "b", "c"})))
+	qt.Check(t, qt.DeepEquals(cmd1.Args, []string{"a", "b", "c"}))
 }
 
 func TestTCPAddrNoExplicitValue(t *testing.T) {
 	var cmd struct {
 		Addr *net.TCPAddr
 	}
-	assert.Error(t, ParseErr(&cmd, []string{"-addr"}))
-	assert.NoError(t, ParseErr(&cmd, []string{"-addr="}))
+	qt.Check(t, qt.IsNotNil(ParseErr(&cmd, []string{"-addr"})))
+	qt.Check(t, qt.IsNil(ParseErr(&cmd, []string{"-addr="})))
 }
 
 func TestUnexportedStructField(t *testing.T) {
 	var cmd struct {
 		badField bool
 	}
-	assert.NoError(t, ParseErr(&cmd, nil))
+	qt.Check(t, qt.IsNil(ParseErr(&cmd, nil)))
 	var ue userError
-	require.True(t, xerrors.As(ParseErr(&cmd, []string{"-badField"}), &ue))
-	assert.EqualValues(t, userError{`unknown flag: "badField"`}, ue)
+	qt.Assert(t, qt.IsTrue(xerrors.As(ParseErr(&cmd, []string{"-badField"}), &ue)))
+	qt.Check(t, qt.Equals(ue, userError{`unknown flag: "badField"`}))
 }
 
 func TestExcessArgsEmpty(t *testing.T) {
 	var cmd struct {
 		ExcessArgs
 	}
-	require.NoError(t, ParseErr(&cmd, nil))
-	assert.Len(t, cmd.ExcessArgs, 0)
+	qt.Assert(t, qt.IsNil(ParseErr(&cmd, nil)))
+	qt.Check(t, qt.HasLen(cmd.ExcessArgs, 0))
 }
 
 func TestExcessArgs(t *testing.T) {
@@ -291,8 +295,8 @@ func TestExcessArgs(t *testing.T) {
 		ExcessArgs
 	}
 	excess := []string{"yo", "-addr=hi"}
-	require.NoError(t, ParseErr(&cmd, excess))
-	assert.EqualValues(t, excess, cmd.ExcessArgs)
+	qt.Assert(t, qt.IsNil(ParseErr(&cmd, excess)))
+	qt.Check(t, qt.DeepEquals([]string(cmd.ExcessArgs), excess))
 }
 
 func TestExcessArgsComplex(t *testing.T) {
@@ -303,8 +307,8 @@ func TestExcessArgsComplex(t *testing.T) {
 		ExcessArgs
 	}
 	excess := []string{"-addr=hi"}
-	require.NoError(t, ParseErr(&cmd, append([]string{"-v", "serve"}, excess...)))
-	assert.EqualValues(t, excess, cmd.ExcessArgs)
+	qt.Assert(t, qt.IsNil(ParseErr(&cmd, append([]string{"-v", "serve"}, excess...))))
+	qt.Check(t, qt.DeepEquals([]string(cmd.ExcessArgs), excess))
 }
 
 func TestFieldAfterExcessArgs(t *testing.T) {
@@ -312,7 +316,7 @@ func TestFieldAfterExcessArgs(t *testing.T) {
 		ExcessArgs
 		Badness string
 	}
-	require.EqualValues(t, ErrFieldsAfterExcessArgs, ParseErr(&cmd, nil))
+	qt.Assert(t, qt.Equals(ParseErr(&cmd, nil), ErrFieldsAfterExcessArgs))
 }
 
 func TestSliceOfUnmarshallableStruct(t *testing.T) {
@@ -320,7 +324,9 @@ func TestSliceOfUnmarshallableStruct(t *testing.T) {
 		StartPos
 		Complex []struct{}
 	}
-	require.EqualError(t, ParseErr(&cmd, []string{"herp"}), "can't marshal type struct {}")
+	qt.Assert(t, qt.ErrorMatches(
+		ParseErr(&cmd, []string{"herp"}),
+		regexp.QuoteMeta("can't marshal type struct {}")))
 }
 
 func newStruct(ref interface{}) func() interface{} {
