@@ -5,12 +5,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/go-quicktest/qt"
 )
 
 func TestEqualZeroArgValue(t *testing.T) {
 	a := arg{value: reflect.ValueOf(net.IP(nil))}
-	assert.True(t, a.hasZeroValue())
+	qt.Check(t, qt.IsTrue(a.hasZeroValue()))
 	b := arg{value: reflect.ValueOf(net.ParseIP("127.0.0.1"))}
-	assert.False(t, b.hasZeroValue())
+	qt.Check(t, qt.IsFalse(b.hasZeroValue()))
 }
